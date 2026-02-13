@@ -18,10 +18,11 @@ class LocalNarrator:
     def __init__(self) -> None:
         self._generator = None
         try:
+            # Do not use device_map="auto" to avoid hard dependency on accelerate.
+            # The narrator is optional and must never break API behavior.
             self._generator = pipeline(
                 "text-generation",
                 model=settings.llm_model,
-                device_map="auto",
             )
         except Exception as exc:
             LOGGER.warning("Could not initialize local model; fallback will be used: %s", exc)
@@ -70,12 +71,27 @@ class LocalNarrator:
                 f"at {structured_week.get('acwr', 1.0):.2f}. "
                 f"Keep easy days easy and prioritize recovery before the next hard session."
             )
-        prompt = (
-            "Write a 3 sentence weekly running summary from this dictionary without adding facts: "
-            f"{structured_week}"
-        )
-        out = self._generator(prompt, max_new_tokens=100, do_sample=False)
-        return out[0]["generated_text"].replace(prompt, "").strip()
+        try:
+            prompt = (
+                "Write a 3 sentence weekly running summary from this dictionary without adding facts: "
+                f"{structured_week}"
+            )
+            out = self._generator(prompt, max_new_tokens=100, do_sample=False)
+            text = out[0]["generated_text"].replace(prompt, "").strip()
+            return text if text else self._fallback(
+                {
+                    "recommended_action": "easy",
+                    "form": 0.0,
+                    "acwr": structured_week.get("acwr", 1.0),
+                }
+            )
+        except Exception as exc:
+            LOGGER.warning("Weekly summary generation failed; fallback used: %s", exc)
+            return (
+                f"This week included {structured_week.get('sessions', 0)} sessions with ACWR "
+                f"at {structured_week.get('acwr', 1.0):.2f}. "
+                "Keep easy days easy and prioritize recovery before the next hard session."
+            )
 
     @staticmethod
     def _fallback(signals: dict[str, Any]) -> str:

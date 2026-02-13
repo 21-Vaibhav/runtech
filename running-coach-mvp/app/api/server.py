@@ -106,6 +106,20 @@ def _upsert_user_from_token_payload(token_payload: dict[str, Any], db: Session) 
     return {"user_id": user.id, "strava_athlete_id": athlete_id}
 
 
+def _existing_user_fallback(db: Session, note: str) -> dict[str, Any] | None:
+    """Return an already linked user when OAuth code is stale/reused."""
+
+    row = db.scalar(select(User).order_by(User.id.asc()))
+    if row is None:
+        return None
+    return {
+        "user_id": row.id,
+        "strava_athlete_id": row.strava_athlete_id,
+        "username": row.username,
+        "note": note,
+    }
+
+
 @app.get("/auth/url")
 def auth_url() -> dict[str, str]:
     """Get Strava OAuth URL."""
@@ -122,6 +136,17 @@ def auth_callback(payload: AuthCallbackRequest, db: Session = Depends(get_db)) -
     try:
         token_payload = client.exchange_code(_extract_code(payload.code))
     except Exception as exc:
+        message = str(exc)
+        if "invalid_grant" in message.lower():
+            fallback = _existing_user_fallback(
+                db,
+                note=(
+                    "The OAuth code is one-time-use and was already consumed. "
+                    "Using existing linked user instead."
+                ),
+            )
+            if fallback is not None:
+                return fallback
         raise HTTPException(status_code=400, detail=f"OAuth exchange failed: {exc}") from exc
 
     return _upsert_user_from_token_payload(token_payload, db)
@@ -135,6 +160,17 @@ def auth_callback_get(code: str = Query(...), db: Session = Depends(get_db)) -> 
     try:
         token_payload = client.exchange_code(_extract_code(code))
     except Exception as exc:
+        message = str(exc)
+        if "invalid_grant" in message.lower():
+            fallback = _existing_user_fallback(
+                db,
+                note=(
+                    "The OAuth code is one-time-use and was already consumed. "
+                    "Using existing linked user instead."
+                ),
+            )
+            if fallback is not None:
+                return fallback
         raise HTTPException(status_code=400, detail=f"OAuth exchange failed: {exc}") from exc
     return _upsert_user_from_token_payload(token_payload, db)
 
@@ -147,6 +183,17 @@ def callback_alias(code: str = Query(...), db: Session = Depends(get_db)) -> dic
     try:
         token_payload = client.exchange_code(_extract_code(code))
     except Exception as exc:
+        message = str(exc)
+        if "invalid_grant" in message.lower():
+            fallback = _existing_user_fallback(
+                db,
+                note=(
+                    "The OAuth code is one-time-use and was already consumed. "
+                    "Using existing linked user instead."
+                ),
+            )
+            if fallback is not None:
+                return fallback
         raise HTTPException(status_code=400, detail=f"OAuth exchange failed: {exc}") from exc
     return _upsert_user_from_token_payload(token_payload, db)
 
