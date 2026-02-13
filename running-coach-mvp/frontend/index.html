@@ -1,0 +1,631 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Running Coach MVP</title>
+  <style>
+    :root {
+      --bg: #060b12;
+      --bg2: #0c1522;
+      --panel: #0f1c2d;
+      --panel2: #14263b;
+      --line: #26405d;
+      --ink: #ecf4ff;
+      --muted: #98aec7;
+      --cyan: #47d5ff;
+      --mint: #67f2b0;
+      --amber: #ffd166;
+      --red: #ff7b7b;
+      --radius: 16px;
+      --shadow: 0 20px 45px rgba(0, 0, 0, 0.4);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Segoe UI", "Inter", Arial, sans-serif;
+      background:
+        radial-gradient(900px 600px at 100% -10%, rgba(71, 213, 255, 0.14), transparent 55%),
+        radial-gradient(900px 500px at -20% 30%, rgba(103, 242, 176, 0.11), transparent 50%),
+        linear-gradient(160deg, var(--bg), var(--bg2));
+      min-height: 100vh;
+    }
+
+    .page {
+      width: min(1240px, 95vw);
+      margin: 24px auto 40px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      background: linear-gradient(180deg, rgba(20, 38, 59, 0.95), rgba(14, 27, 43, 0.95));
+      padding: 14px;
+    }
+
+    .hero h1 {
+      margin: 0;
+      font-size: clamp(1.3rem, 2.2vw, 1.9rem);
+    }
+
+    .hero p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      line-height: 1.5;
+      max-width: 100ch;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 14px;
+    }
+
+    .stack { display: grid; gap: 14px; }
+
+    h2 {
+      margin: 0 0 10px;
+      font-size: 1rem;
+      letter-spacing: 0.1px;
+    }
+
+    .steps {
+      display: grid;
+      gap: 8px;
+      margin: 10px 0;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 10px;
+      align-items: start;
+      padding: 9px;
+      border: 1px solid #2c4a69;
+      border-radius: 10px;
+      background: rgba(8, 15, 25, 0.45);
+    }
+
+    .step .n {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: rgba(71, 213, 255, 0.18);
+      border: 1px solid #3d739f;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      color: #8de9ff;
+      font-size: 0.82rem;
+    }
+
+    .step .txt {
+      color: var(--muted);
+      font-size: 0.86rem;
+      line-height: 1.4;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--muted);
+      font-size: 0.77rem;
+    }
+
+    input, select {
+      width: 100%;
+      background: #0b1522;
+      color: var(--ink);
+      border: 1px solid #2d4d6f;
+      border-radius: 10px;
+      padding: 9px 10px;
+      font: inherit;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 9px 12px;
+      color: #072031;
+      font-weight: 700;
+      cursor: pointer;
+      background: linear-gradient(90deg, var(--cyan), #91efff);
+    }
+
+    button.secondary {
+      background: linear-gradient(90deg, #9fd8ff, #b6ffd8);
+      color: #082539;
+    }
+
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .kpi {
+      border: 1px solid #2f4f6f;
+      border-radius: 11px;
+      padding: 8px;
+      background: rgba(8, 15, 25, 0.5);
+    }
+
+    .kpi .l {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+    }
+
+    .kpi .v {
+      margin-top: 4px;
+      font-size: 1.1rem;
+      font-weight: 700;
+    }
+
+    .status {
+      margin-top: 10px;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+
+    .good { color: var(--mint); }
+    .warn { color: var(--amber); }
+    .bad { color: var(--red); }
+
+    pre, .panel {
+      margin: 10px 0 0;
+      background: #081321;
+      border: 1px solid #2a4767;
+      border-radius: 11px;
+      padding: 10px;
+      font-size: 0.8rem;
+      line-height: 1.4;
+      color: #d7e8fc;
+      max-height: 320px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.4;
+      margin-top: 8px;
+    }
+
+    .explain-list {
+      margin: 0;
+      padding-left: 16px;
+      color: #cfe2f6;
+      font-size: 0.86rem;
+      line-height: 1.45;
+    }
+
+    .chip {
+      display: inline-block;
+      font-size: 0.74rem;
+      border: 1px solid #3a607f;
+      color: #9fd8ff;
+      border-radius: 999px;
+      padding: 3px 8px;
+      margin: 3px 4px 0 0;
+      background: rgba(71, 213, 255, 0.09);
+    }
+
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+      .grid { grid-template-columns: 1fr; }
+      .kpis { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="card hero">
+      <h1>RunTech Coach</h1>
+      <p>
+        New-runner mode: this app turns your Strava runs into a daily training recommendation.
+        It checks your recent load, estimates fitness and fatigue, blocks unsafe sessions, and then explains why it chose today's action.
+      </p>
+      <div class="kpis">
+        <div class="kpi"><div class="l">Action</div><div class="v" id="kAction">-</div></div>
+        <div class="kpi"><div class="l">Form</div><div class="v" id="kForm">-</div></div>
+        <div class="kpi"><div class="l">ACWR</div><div class="v" id="kAcwr">-</div></div>
+        <div class="kpi"><div class="l">Confidence</div><div class="v" id="kConf">-</div></div>
+      </div>
+    </section>
+
+    <section class="layout">
+      <div class="stack">
+        <section class="card">
+          <h2>Step-by-Step Setup</h2>
+          <div class="steps">
+            <div class="step"><div class="n">1</div><div class="txt">Click <strong>Get Auth URL</strong> then <strong>Open Auth</strong> to connect Strava.</div></div>
+            <div class="step"><div class="n">2</div><div class="txt">After permission, copy the <strong>code</strong> from redirect URL and click <strong>Exchange Code</strong>.</div></div>
+            <div class="step"><div class="n">3</div><div class="txt">Click <strong>Sync</strong>. Backend fetches runs and streams (HR, pace, elevation, cadence).</div></div>
+            <div class="step"><div class="n">4</div><div class="txt">Click <strong>Update State</strong> then <strong>Recommend</strong> for today’s action.</div></div>
+          </div>
+
+          <div class="grid">
+            <div>
+              <label for="apiBase">API Base URL</label>
+              <input id="apiBase" value="http://localhost:8000" />
+            </div>
+            <div>
+              <label for="userId">User ID</label>
+              <input id="userId" type="number" value="1" min="1" />
+            </div>
+            <div>
+              <label for="oauthCode">OAuth Code</label>
+              <input id="oauthCode" placeholder="Paste code from Strava callback URL" />
+            </div>
+            <div>
+              <label for="daysBack">Sync Days Back</label>
+              <input id="daysBack" type="number" value="90" min="1" max="365" />
+            </div>
+          </div>
+
+          <div class="row">
+            <button id="getAuth">Get Auth URL</button>
+            <button class="secondary" id="openAuth">Open Auth</button>
+            <button class="secondary" id="exchange">Exchange Code</button>
+            <button class="secondary" id="users">List Users</button>
+          </div>
+          <pre id="authOut">Connection info appears here.</pre>
+        </section>
+
+        <section class="card">
+          <h2>Daily Actions</h2>
+          <div class="row">
+            <button id="sync">Sync</button>
+            <button id="state">Update State</button>
+            <button id="recommend">Recommend</button>
+            <button class="secondary" id="history">History</button>
+            <button class="secondary" id="stats">Stats</button>
+          </div>
+          <div id="status" class="status">Ready.</div>
+          <pre id="apiOut">Results appear here.</pre>
+        </section>
+      </div>
+
+      <div class="stack">
+        <section class="card">
+          <h2>Why This Recommendation?</h2>
+          <div class="panel" id="whyPanel">No recommendation yet.</div>
+          <pre id="narrative">Narrative explanation appears here.</pre>
+        </section>
+
+        <section class="card">
+          <h2>What Backend Is Doing</h2>
+          <div class="panel" id="backendPanel">Idle.
+- Waiting for your action.
+- No background tasks running.
+          </div>
+          <div class="hint">
+            Backend flow: OAuth -> Sync Strava -> Compute metrics (TRIMP/ACWR/etc) -> Estimate fitness/fatigue -> Apply safety rules -> Recommend action.
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Feedback (Optional, End of Day)</h2>
+          <div class="grid">
+            <div>
+              <label for="actualAction">What you actually did</label>
+              <select id="actualAction"><option>rest</option><option>easy</option><option>moderate</option><option>hard</option></select>
+            </div>
+            <div>
+              <label for="overtrained">Felt overtrained today?</label>
+              <select id="overtrained"><option value="false">No</option><option value="true">Yes</option></select>
+            </div>
+          </div>
+          <div class="row"><button class="secondary" id="feedback">Log Feedback</button></div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const apiBase = $("apiBase");
+    const userId = $("userId");
+    const oauthCode = $("oauthCode");
+    const daysBack = $("daysBack");
+
+    const authOut = $("authOut");
+    const apiOut = $("apiOut");
+    const narrative = $("narrative");
+    const whyPanel = $("whyPanel");
+    const backendPanel = $("backendPanel");
+    const status = $("status");
+
+    const kAction = $("kAction");
+    const kForm = $("kForm");
+    const kAcwr = $("kAcwr");
+    const kConf = $("kConf");
+
+    const savedBase = localStorage.getItem("rc_api_base");
+    const savedUser = localStorage.getItem("rc_user_id");
+    if (savedBase) apiBase.value = savedBase;
+    if (savedUser) userId.value = savedUser;
+
+    function base() {
+      const b = apiBase.value.trim().replace(/\/$/, "");
+      localStorage.setItem("rc_api_base", b);
+      return b;
+    }
+
+    function uid() {
+      const v = String(userId.value || "1").trim();
+      localStorage.setItem("rc_user_id", v);
+      return Number(v);
+    }
+
+    function setStatus(msg, tone = "good") {
+      status.textContent = msg;
+      status.className = `status ${tone}`;
+    }
+
+    function backend(lines) {
+      backendPanel.textContent = lines.join("\n");
+    }
+
+    function pretty(obj) { return JSON.stringify(obj, null, 2); }
+    function normalizeCode(input) {
+      const raw = (input || "").trim();
+      if (!raw.includes("code=")) return raw;
+      try {
+        if (raw.startsWith("http://") || raw.startsWith("https://")) {
+          const u = new URL(raw);
+          return u.searchParams.get("code") || "";
+        }
+      } catch (_) {}
+      const q = raw.startsWith("?") ? raw.slice(1) : raw;
+      const p = new URLSearchParams(q);
+      return p.get("code") || "";
+    }
+
+    async function get(path) {
+      const res = await fetch(`${base()}${path}`);
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    }
+
+    async function post(path, body) {
+      const res = await fetch(`${base()}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    }
+
+    function renderWhy(data) {
+      const reason = data.reasoning_dict || {};
+      const blocked = (reason.blocked_actions || []).map((a) => `<span class="chip">Blocked: ${a}</span>`).join(" ");
+      const constraints = (reason.hard_constraint_reasons || []).map((c) => `<span class="chip">${c}</span>`).join(" ");
+      const form = Number(reason.form ?? 0).toFixed(1);
+      const acwr = Number(reason.acwr ?? 0).toFixed(2);
+
+      whyPanel.innerHTML = `
+        <ul class="explain-list">
+          <li><strong>Recommended:</strong> ${data.recommended_action}</li>
+          <li><strong>Confidence:</strong> ${Number(data.confidence_score || 0).toFixed(2)}</li>
+          <li><strong>Form:</strong> ${form} (fitness - fatigue)</li>
+          <li><strong>ACWR:</strong> ${acwr} (recent load vs baseline)</li>
+          <li><strong>Why:</strong> objective = fitness gain - fatigue penalty - injury risk</li>
+        </ul>
+        <div>${constraints || '<span class="chip">No hard constraints triggered</span>'}</div>
+        <div style="margin-top:6px;">${blocked || ''}</div>
+      `;
+    }
+
+    function hydrateKpis(data) {
+      kAction.textContent = data.recommended_action || "-";
+      kForm.textContent = Number(data.reasoning_dict?.form ?? 0).toFixed(1);
+      kAcwr.textContent = Number(data.reasoning_dict?.acwr ?? 0).toFixed(2);
+      kConf.textContent = Number(data.confidence_score ?? 0).toFixed(2);
+    }
+
+    $("getAuth").addEventListener("click", async () => {
+      try {
+        backend(["[Auth] Requesting Strava OAuth URL...", "- Backend creates URL with client_id + redirect_uri + scopes."]);
+        const data = await get("/auth/url");
+        authOut.textContent = pretty(data);
+        setStatus("Auth URL ready.");
+      } catch (e) {
+        authOut.textContent = String(e);
+        setStatus("Auth URL failed.", "bad");
+      }
+    });
+
+    $("openAuth").addEventListener("click", async () => {
+      try {
+        const data = await get("/auth/url");
+        authOut.textContent = pretty(data);
+        window.open(data.url, "_blank", "noopener");
+        backend(["[Auth] Opened Strava authorization page.", "- After approval, copy 'code' from redirect URL."]);
+        setStatus("Auth page opened.");
+      } catch (e) {
+        authOut.textContent = String(e);
+        setStatus("Open auth failed.", "bad");
+      }
+    });
+
+    $("exchange").addEventListener("click", async () => {
+      try {
+        if (!oauthCode.value.trim()) {
+          setStatus("Paste OAuth code first.", "warn");
+          return;
+        }
+        backend([
+          "[Auth] Exchanging code for access token...",
+          "- Backend calls Strava /oauth/token",
+          "- Stores/updates user with access + refresh token"
+        ]);
+        const code = normalizeCode(oauthCode.value);
+        if (!code) {
+          setStatus("Could not parse a valid code. Paste full callback URL or raw code.", "warn");
+          return;
+        }
+        const data = await post("/auth/callback", { code });
+        authOut.textContent = pretty(data);
+        if (data.user_id) userId.value = data.user_id;
+        setStatus("Connected to Strava.");
+      } catch (e) {
+        authOut.textContent = String(e);
+        setStatus("Code exchange failed (code may be reused/expired or redirect mismatch).", "bad");
+      }
+    });
+
+    $("users").addEventListener("click", async () => {
+      try {
+        const data = await get("/users");
+        authOut.textContent = pretty(data);
+        if (Array.isArray(data) && data.length) userId.value = data[0].id;
+        setStatus("Users loaded.");
+      } catch (e) {
+        authOut.textContent = String(e);
+        setStatus("Load users failed.", "bad");
+      }
+    });
+
+    $("sync").addEventListener("click", async () => {
+      try {
+        backend([
+          "[Sync] Pulling activities from Strava...",
+          "- Fetch runs in date window",
+          "- Fetch streams: HR, pace, elevation, cadence",
+          "- Compute quality + metrics (TRIMP, GAP, efficiency, VO2)",
+          "- Save to SQLite"
+        ]);
+        const data = await post("/sync", { user_id: uid(), days_back: Number(daysBack.value) });
+        apiOut.textContent = pretty(data);
+        setStatus("Sync complete.");
+      } catch (e) {
+        apiOut.textContent = String(e);
+        setStatus("Sync failed. Check auth and user_id.", "bad");
+      }
+    });
+
+    $("state").addEventListener("click", async () => {
+      try {
+        backend([
+          "[State] Updating fitness/fatigue model...",
+          "- Runs Kalman + impulse-response models",
+          "- Computes form = fitness - fatigue",
+          "- Saves confidence intervals"
+        ]);
+        const data = await get(`/state/${uid()}`);
+        apiOut.textContent = pretty(data);
+        setStatus("State updated.");
+      } catch (e) {
+        apiOut.textContent = String(e);
+        setStatus("State update failed.", "bad");
+      }
+    });
+
+    $("recommend").addEventListener("click", async () => {
+      try {
+        backend([
+          "[Recommend] Running decision engine...",
+          "- Applies hard constraints (fatigue CI, ACWR, taper, intensity spacing)",
+          "- Scores actions: rest/easy/moderate/hard",
+          "- Picks highest safe score + narrative explanation"
+        ]);
+        const data = await post(`/recommend/${uid()}`, { model: "kalman" });
+        apiOut.textContent = pretty(data);
+        narrative.textContent = data.narrative || "No narrative.";
+        renderWhy(data);
+        hydrateKpis(data);
+        setStatus("Recommendation ready.");
+      } catch (e) {
+        apiOut.textContent = String(e);
+        setStatus("Recommendation failed.", "bad");
+      }
+    });
+
+    $("history").addEventListener("click", async () => {
+      try {
+        backend([
+          "[History] Loading your recent activities...",
+          "- Fetches last activities from SQLite",
+          "- Builds weekly summary"
+        ]);
+        const data = await get(`/history/${uid()}`);
+        apiOut.textContent = pretty(data);
+        if (data.weekly_summary) narrative.textContent = data.weekly_summary;
+        setStatus("History loaded.");
+      } catch (e) {
+        apiOut.textContent = String(e);
+        setStatus("History failed.", "bad");
+      }
+    });
+
+    $("stats").addEventListener("click", async () => {
+      try {
+        backend([
+          "[Stats] Calculating coaching quality metrics...",
+          "- Adherence and agreement rates",
+          "- Prediction RMSE and overtraining rate"
+        ]);
+        const data = await get(`/stats/${uid()}`);
+        apiOut.textContent = pretty(data);
+        setStatus("Stats loaded.");
+      } catch (e) {
+        apiOut.textContent = String(e);
+        setStatus("Stats failed.", "bad");
+      }
+    });
+
+    $("feedback").addEventListener("click", async () => {
+      try {
+        backend([
+          "[Feedback] Logging what you actually did...",
+          "- Stores recommendation vs actual action",
+          "- Updates future calibration stats"
+        ]);
+        const data = await post("/feedback", {
+          user_id: uid(),
+          feedback_date: new Date().toISOString().slice(0, 10),
+          actual_action: $("actualAction").value,
+          observed_outcome: {
+            overtrained: $("overtrained").value === "true",
+            fatigue_delta: 0
+          }
+        });
+        apiOut.textContent = pretty(data);
+        setStatus("Feedback logged.");
+      } catch (e) {
+        apiOut.textContent = String(e);
+        setStatus("Feedback failed.", "bad");
+      }
+    });
+  </script>
+</body>
+</html>
+
+
+

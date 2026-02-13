@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Local environment
+.env
+running-coach-mvp/.env
+
+# Local databases
+*.db
+running-coach-mvp/running_coach.db
+
+# OS/editor
+.DS_Store
+Thumbs.db
