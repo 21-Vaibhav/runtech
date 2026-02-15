@@ -10,12 +10,14 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from typing import Literal
 
 from app.config import settings
 from app.data.database import (
@@ -41,31 +43,32 @@ logging.basicConfig(level=logging.INFO)
 app = FastAPI(title="Running Coach MVP", version="1.1.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=list(settings.cors_origins),
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key"],
 )
 
 
 class AuthCallbackRequest(BaseModel):
-    code: str
+    code: str = Field(min_length=1, max_length=4096)
+    state: str | None = Field(default=None, min_length=8, max_length=256)
 
 
 class SyncRequest(BaseModel):
-    user_id: int
-    days_back: int = 90
+    user_id: int = Field(gt=0)
+    days_back: int = Field(default=90, ge=1, le=365)
 
 
 class FeedbackRequest(BaseModel):
-    user_id: int
+    user_id: int = Field(gt=0)
     feedback_date: date
-    actual_action: str
+    actual_action: Literal["rest", "easy", "moderate", "hard"]
     observed_outcome: dict[str, Any] = Field(default_factory=dict)
 
 
 class RecommendRequest(BaseModel):
-    model: str = "kalman"
+    model: Literal["kalman", "impulse_response"] = "kalman"
 
 
 @dataclass
@@ -134,9 +137,42 @@ def get_narrator() -> LocalNarrator:
     return _NARRATOR
 
 
+def require_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
+    """Optional API key gate. Enforced only when API_KEY env is set."""
+
+    if not settings.api_key:
+        return
+    if x_api_key != settings.api_key:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """Attach baseline security headers and normalized error response."""
+
+    try:
+        response = await call_next(request)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        LOGGER.exception("Unhandled server error: %s", exc)
+        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if request.url.scheme == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
 @app.on_event("startup")
 def startup() -> None:
-    init_db()
+    try:
+        init_db()
+    except Exception as exc:
+        LOGGER.exception("Database initialization failed during startup: %s", exc)
     narrator = get_narrator()
     narrator.preload()
     LOGGER.info("startup complete")
@@ -175,12 +211,15 @@ def _readiness_label(form: float, acwr_value: float, confidence: float) -> str:
 
 @app.get("/auth/url")
 def auth_url() -> dict[str, str]:
-    return {"url": StravaClient().get_auth_url()}
+    state = StravaClient.create_oauth_state()
+    return {"url": StravaClient().get_auth_url(state=state), "state": state}
 
 
 @app.post("/auth/callback")
 def auth_callback(payload: AuthCallbackRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     client = StravaClient()
+    if payload.state and not client.validate_oauth_state(payload.state):
+        raise HTTPException(status_code=400, detail="Invalid or expired OAuth state. Retry authorization.")
     try:
         token_payload = client.exchange_code(_extract_code(payload.code))
     except Exception as exc:
@@ -198,17 +237,25 @@ def auth_callback(payload: AuthCallbackRequest, db: Session = Depends(get_db)) -
 
 
 @app.get("/auth/callback")
-def auth_callback_get(code: str = Query(...), db: Session = Depends(get_db)) -> dict[str, Any]:
-    return auth_callback(AuthCallbackRequest(code=code), db)
+def auth_callback_get(
+    code: str = Query(..., min_length=1),
+    state: str | None = Query(default=None, min_length=8, max_length=256),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return auth_callback(AuthCallbackRequest(code=code, state=state), db)
 
 
 @app.get("/callback")
-def callback_alias(code: str = Query(...), db: Session = Depends(get_db)) -> dict[str, Any]:
-    return auth_callback(AuthCallbackRequest(code=code), db)
+def callback_alias(
+    code: str = Query(..., min_length=1),
+    state: str | None = Query(default=None, min_length=8, max_length=256),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return auth_callback(AuthCallbackRequest(code=code, state=state), db)
 
 
 @app.get("/users")
-def list_users(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+def list_users(db: Session = Depends(get_db), _: None = Depends(require_api_key)) -> list[dict[str, Any]]:
     rows = db.scalars(select(User).order_by(User.id.asc())).all()
     return [
         {
@@ -222,7 +269,7 @@ def list_users(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
 
 
 @app.post("/sync")
-def sync(payload: SyncRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+def sync(payload: SyncRequest, db: Session = Depends(get_db), _: None = Depends(require_api_key)) -> dict[str, Any]:
     t0 = time.perf_counter()
     try:
         result = sync_activities(db=db, user_id=payload.user_id, days_back=payload.days_back)
@@ -240,7 +287,7 @@ def sync(payload: SyncRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 @app.get("/state/{user_id}")
-def state(user_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def state(user_id: int, db: Session = Depends(get_db), _: None = Depends(require_api_key)) -> dict[str, Any]:
     cache = db.scalar(select(UserStateCache).where(UserStateCache.user_id == user_id))
     if cache is None:
         raise HTTPException(status_code=404, detail="State cache missing. Run update-state first.")
@@ -257,7 +304,7 @@ def state(user_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 @app.post("/state/update/{user_id}")
-def state_update(user_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def state_update(user_id: int, db: Session = Depends(get_db), _: None = Depends(require_api_key)) -> dict[str, Any]:
     """Explicitly recompute state cache for the user."""
 
     t0 = time.perf_counter()
@@ -305,7 +352,13 @@ def _build_recommendation_payload(
 
 
 @app.post("/recommend/{user_id}")
-async def recommend(user_id: int, payload: RecommendRequest, db: Session = Depends(get_db), narrator: LocalNarrator = Depends(get_narrator)) -> dict[str, Any]:
+async def recommend(
+    user_id: int,
+    payload: RecommendRequest,
+    db: Session = Depends(get_db),
+    narrator: LocalNarrator = Depends(get_narrator),
+    _: None = Depends(require_api_key),
+) -> dict[str, Any]:
     """Generate recommendation from cached state and cache result for 6h."""
 
     t0 = time.perf_counter()
@@ -328,7 +381,7 @@ async def recommend(user_id: int, payload: RecommendRequest, db: Session = Depen
 
 
 @app.post("/feedback")
-def feedback(payload: FeedbackRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+def feedback(payload: FeedbackRequest, db: Session = Depends(get_db), _: None = Depends(require_api_key)) -> dict[str, Any]:
     try:
         log = log_feedback(
             db=db,
@@ -344,7 +397,7 @@ def feedback(payload: FeedbackRequest, db: Session = Depends(get_db)) -> dict[st
 
 
 @app.get("/stats/{user_id}")
-def stats(user_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def stats(user_id: int, db: Session = Depends(get_db), _: None = Depends(require_api_key)) -> dict[str, Any]:
     summary = compute_stats(db, user_id)
     return {
         "agreement_rate": summary.agreement_rate,
@@ -356,7 +409,13 @@ def stats(user_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 @app.get("/history/{user_id}")
-def history(user_id: int, days: int = 30, db: Session = Depends(get_db), narrator: LocalNarrator = Depends(get_narrator)) -> dict[str, Any]:
+def history(
+    user_id: int,
+    days: int = 30,
+    db: Session = Depends(get_db),
+    narrator: LocalNarrator = Depends(get_narrator),
+    _: None = Depends(require_api_key),
+) -> dict[str, Any]:
     since = datetime.utcnow() - timedelta(days=days)
     rows = db.scalars(
         select(Activity)
@@ -394,7 +453,7 @@ def history(user_id: int, days: int = 30, db: Session = Depends(get_db), narrato
 
 
 @app.get("/dashboard/{user_id}")
-def dashboard(user_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def dashboard(user_id: int, db: Session = Depends(get_db), _: None = Depends(require_api_key)) -> dict[str, Any]:
     now = datetime.utcnow()
     week_ago = now - timedelta(days=7)
 

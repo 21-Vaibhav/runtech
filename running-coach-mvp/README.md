@@ -126,3 +126,9 @@ pytest -q
 ```
 
 Current local status: all tests pass.
+
+## Security Notes
+
+- Configure `CORS_ORIGINS` to your frontend origins in production.
+- Set `API_KEY` to require `X-API-Key` on data/decision endpoints.
+- OAuth uses signed `state` tokens; always complete auth from `/auth/url`.

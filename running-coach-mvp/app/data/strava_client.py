@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import logging
+import secrets
 import time
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from datetime import datetime, timezone
+import hashlib
+import hmac
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 
@@ -32,7 +36,7 @@ class StravaClient:
     def __init__(self, user: User | None = None) -> None:
         self.user = user
 
-    def get_auth_url(self, state: str = "running-coach") -> str:
+    def get_auth_url(self, state: str | None = None) -> str:
         """Build OAuth URL.
 
         Args:
@@ -42,11 +46,60 @@ class StravaClient:
             str: Authorization URL.
         """
 
-        return (
-            f"{STRAVA_AUTH_URL}?client_id={settings.strava_client_id}&response_type=code"
-            f"&redirect_uri={settings.strava_redirect_uri}&approval_prompt=auto"
-            f"&scope=read,activity:read_all&state={state}"
+        effective_state = state or self.create_oauth_state()
+        query = urlencode(
+            {
+                "client_id": settings.strava_client_id,
+                "response_type": "code",
+                "redirect_uri": settings.strava_redirect_uri,
+                "approval_prompt": "auto",
+                "scope": "read,activity:read_all",
+                "state": effective_state,
+            }
         )
+        return f"{STRAVA_AUTH_URL}?{query}"
+
+    @staticmethod
+    def _oauth_secret() -> str:
+        return settings.strava_client_secret or "running-coach-state-secret"
+
+    @classmethod
+    def create_oauth_state(cls) -> str:
+        """Create signed OAuth state token."""
+
+        issued = str(int(time.time()))
+        nonce = secrets.token_hex(8)
+        payload = f"{issued}.{nonce}"
+        sig = hmac.new(
+            cls._oauth_secret().encode("utf-8"),
+            payload.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()[:20]
+        token = f"{payload}.{sig}".encode("utf-8")
+        return urlsafe_b64encode(token).decode("utf-8").rstrip("=")
+
+    @classmethod
+    def validate_oauth_state(cls, state: str, max_age_seconds: int = 900) -> bool:
+        """Validate signed OAuth state token and age window."""
+
+        if not state:
+            return False
+        try:
+            padded = state + "=" * ((4 - len(state) % 4) % 4)
+            raw = urlsafe_b64decode(padded.encode("utf-8")).decode("utf-8")
+            issued_s, nonce, sig = raw.split(".", 2)
+            payload = f"{issued_s}.{nonce}"
+            expected = hmac.new(
+                cls._oauth_secret().encode("utf-8"),
+                payload.encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()[:20]
+            if not hmac.compare_digest(sig, expected):
+                return False
+            age = int(time.time()) - int(issued_s)
+            return 0 <= age <= max_age_seconds
+        except Exception:
+            return False
 
     def exchange_code(self, code: str) -> dict[str, Any]:
         """Exchange OAuth code for tokens.

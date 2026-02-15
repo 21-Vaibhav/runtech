@@ -298,6 +298,8 @@
           <h2>Controls</h2>
           <label for="apiBase">API base URL</label>
           <input id="apiBase" value="" placeholder="Auto: current deployment origin" />
+          <label for="apiKey">API key (optional)</label>
+          <input id="apiKey" type="password" placeholder="Required only if server API_KEY is set" />
           <label for="userId">User ID</label>
           <input id="userId" type="number" min="1" value="1" />
           <label for="oauthCode">OAuth code or callback URL</label>
@@ -379,6 +381,7 @@
       statusText: $("statusText"),
       statusDot: $("statusDot"),
       apiBase: $("apiBase"),
+      apiKey: $("apiKey"),
       userId: $("userId"),
       oauthCode: $("oauthCode"),
       daysBack: $("daysBack"),
@@ -402,6 +405,7 @@
     const isDeployedHost = !["localhost", "127.0.0.1"].includes(window.location.hostname);
     const savedBase = localStorage.getItem("rc_api_base");
     const savedUser = localStorage.getItem("rc_user_id");
+    const savedKey = localStorage.getItem("rc_api_key");
     if (savedBase && !(isDeployedHost && savedBase.includes("localhost"))) {
       ui.apiBase.value = savedBase;
     } else {
@@ -409,6 +413,7 @@
       localStorage.setItem("rc_api_base", runtimeBase);
     }
     if (savedUser) ui.userId.value = savedUser;
+    if (savedKey) ui.apiKey.value = savedKey;
 
     function apiBase() {
       const v = (ui.apiBase.value.trim() || runtimeBase).replace(/\/$/, "");
@@ -419,6 +424,16 @@
     function userId() {
       const v = Number(String(ui.userId.value || "1").trim());
       localStorage.setItem("rc_user_id", String(v));
+      return v;
+    }
+
+    function apiKey() {
+      const v = ui.apiKey.value.trim();
+      if (v) {
+        localStorage.setItem("rc_api_key", v);
+      } else {
+        localStorage.removeItem("rc_api_key");
+      }
       return v;
     }
 
@@ -457,7 +472,10 @@
     }
 
     async function request(path, options = {}) {
-      const response = await fetch(`${apiBase()}${path}`, options);
+      const headers = new Headers(options.headers || {});
+      const key = apiKey();
+      if (key) headers.set("X-API-Key", key);
+      const response = await fetch(`${apiBase()}${path}`, { ...options, headers });
       const raw = await response.text();
       if (!response.ok) {
         let detail = raw;
@@ -613,6 +631,7 @@
     $("openAuthBtn").addEventListener("click", () => run("Opening auth...", async () => {
       const payload = await request("/auth/url");
       ui.apiOut.textContent = JSON.stringify(payload, null, 2);
+      if (payload.state) localStorage.setItem("rc_oauth_state", payload.state);
       window.open(payload.url, "_blank", "noopener");
       setStatus("Auth URL opened", "good");
     }));
@@ -620,10 +639,11 @@
     $("exchangeBtn").addEventListener("click", () => run("Exchanging code...", async () => {
       const code = normalizeCode(ui.oauthCode.value);
       if (!code) throw new Error("Paste a valid OAuth code or callback URL.");
+      const state = localStorage.getItem("rc_oauth_state") || null;
       const payload = await request("/auth/callback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, state }),
       });
       ui.apiOut.textContent = JSON.stringify(payload, null, 2);
       if (payload.user_id) ui.userId.value = payload.user_id;
