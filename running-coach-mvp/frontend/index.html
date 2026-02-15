@@ -14,10 +14,10 @@
       --line: #283a56;
       --text: #edf3ff;
       --muted: #9eb0c9;
-      --blue: #6fd9ff;
-      --teal: #7ff0c7;
-      --amber: #ffd68a;
-      --rose: #ff95a5;
+      --blue: #cfd4dd;
+      --teal: #b7bdc8;
+      --amber: #9fa6b2;
+      --rose: #7f8793;
       --radius: 18px;
       --shadow: 0 18px 60px rgba(0, 0, 0, 0.42);
     }
@@ -29,8 +29,8 @@
       color: var(--text);
       font-family: "Segoe UI", Tahoma, sans-serif;
       background:
-        radial-gradient(1000px 500px at 110% -10%, rgba(111, 217, 255, 0.16), transparent 60%),
-        radial-gradient(760px 520px at -20% 20%, rgba(127, 240, 199, 0.1), transparent 56%),
+        radial-gradient(1000px 500px at 110% -10%, rgba(190, 197, 210, 0.11), transparent 60%),
+        radial-gradient(760px 520px at -20% 20%, rgba(155, 163, 177, 0.09), transparent 56%),
         linear-gradient(165deg, var(--bg), var(--bg-soft));
       min-height: 100vh;
     }
@@ -80,8 +80,8 @@
       width: 28px;
       height: 28px;
       border-radius: 8px;
-      background: linear-gradient(145deg, #5fd4ff, #8ff3c4);
-      box-shadow: 0 8px 18px rgba(95, 212, 255, 0.45);
+      background: linear-gradient(145deg, #cfd4dd, #8d95a3);
+      box-shadow: 0 8px 18px rgba(120, 126, 137, 0.45);
     }
 
     .status {
@@ -95,11 +95,11 @@
       width: 10px;
       height: 10px;
       border-radius: 50%;
-      background: var(--teal);
-      box-shadow: 0 0 12px rgba(127, 240, 199, 0.7);
+      background: #b7bdc8;
+      box-shadow: 0 0 12px rgba(183, 189, 200, 0.6);
     }
-    .dot.warn { background: var(--amber); box-shadow: 0 0 12px rgba(255, 214, 138, 0.7); }
-    .dot.bad { background: var(--rose); box-shadow: 0 0 12px rgba(255, 149, 165, 0.7); }
+    .dot.warn { background: #9fa6b2; box-shadow: 0 0 12px rgba(159, 166, 178, 0.6); }
+    .dot.bad { background: #7f8793; box-shadow: 0 0 12px rgba(127, 135, 147, 0.6); }
 
     .main {
       display: grid;
@@ -141,13 +141,13 @@
       padding: 10px 14px;
       font: inherit;
       font-weight: 700;
-      color: #072131;
+      color: #14181f;
       cursor: pointer;
       background: linear-gradient(90deg, var(--blue), #a2efff);
     }
     button.secondary {
-      color: #0f2b24;
-      background: linear-gradient(90deg, #adf1da, #d6ffe6);
+      color: #20252e;
+      background: linear-gradient(90deg, #c2c8d1, #dde1e8);
     }
     button:disabled { opacity: 0.58; cursor: not-allowed; }
 
@@ -177,9 +177,9 @@
 
     .recommend-box {
       margin-top: 10px;
-      border: 1px solid #365b7f;
+      border: 1px solid #4f5f74;
       border-radius: 14px;
-      background: rgba(111, 217, 255, 0.12);
+      background: rgba(184, 190, 201, 0.12);
       padding: 12px;
     }
     .recommend-title {
@@ -203,16 +203,16 @@
     .badge {
       display: inline-block;
       margin-top: 10px;
-      border: 1px solid #40668b;
+      border: 1px solid #4f5f74;
       border-radius: 999px;
       padding: 4px 10px;
       color: #c7e4ff;
-      background: rgba(111, 217, 255, 0.12);
+      background: rgba(184, 190, 201, 0.12);
       font-size: 0.8rem;
     }
-    .badge.ready { border-color: #3e936b; color: #9bffd7; background: rgba(127, 240, 199, 0.16); }
-    .badge.steady { border-color: #8f7948; color: #ffe4ad; background: rgba(255, 214, 138, 0.16); }
-    .badge.caution { border-color: #8f5160; color: #ffc7d0; background: rgba(255, 149, 165, 0.16); }
+    .badge.ready { border-color: #7b838f; color: #d7dde6; background: rgba(164, 171, 181, 0.18); }
+    .badge.steady { border-color: #676f7b; color: #c8cfd9; background: rgba(140, 148, 160, 0.18); }
+    .badge.caution { border-color: #535a66; color: #b8bec8; background: rgba(116, 124, 136, 0.18); }
 
     .panel {
       margin-top: 10px;
@@ -258,7 +258,7 @@
       padding: 4px 8px;
       font-size: 0.76rem;
       color: #c5e4ff;
-      background: rgba(111, 217, 255, 0.1);
+      background: rgba(150, 158, 171, 0.12);
     }
 
     .feedback {
@@ -592,8 +592,8 @@
         data: {
           labels: stateLabels,
           datasets: [
-            { label: "Fitness", data: fitnessData, borderColor: "#6fd9ff", tension: 0.3, pointRadius: statePointRadius },
-            { label: "Fatigue", data: fatigueData, borderColor: "#ff95a5", tension: 0.3, pointRadius: statePointRadius },
+            { label: "Fitness", data: fitnessData, borderColor: "#cfd4dd", tension: 0.3, pointRadius: statePointRadius },
+            { label: "Fatigue", data: fatigueData, borderColor: "#8f97a4", tension: 0.3, pointRadius: statePointRadius },
           ],
         },
         options: {
@@ -608,7 +608,7 @@
         type: "bar",
         data: {
           labels: loadLabels,
-          datasets: [{ label: "Weekly Load", data: loadData, backgroundColor: "rgba(127,240,199,0.6)", borderColor: "#7ff0c7", borderWidth: 1 }],
+          datasets: [{ label: "Weekly Load", data: loadData, backgroundColor: "rgba(177,184,196,0.55)", borderColor: "#c3c9d3", borderWidth: 1 }],
         },
         options: {
           responsive: true,
@@ -623,8 +623,8 @@
         data: {
           labels: acwrLabels,
           datasets: [
-            { label: "ACWR", data: acwrData, borderColor: "#ffd68a", backgroundColor: "rgba(255,214,138,0.2)", fill: true, tension: 0.28, pointRadius: acwrPointRadius },
-            { label: "Risk 1.5", data: acwrLabels.map(() => 1.5), borderColor: "rgba(255,149,165,0.9)", borderDash: [6, 5], pointRadius: 0 },
+            { label: "ACWR", data: acwrData, borderColor: "#b8beca", backgroundColor: "rgba(184,190,202,0.2)", fill: true, tension: 0.28, pointRadius: acwrPointRadius },
+            { label: "Risk 1.5", data: acwrLabels.map(() => 1.5), borderColor: "rgba(124,132,145,0.9)", borderDash: [6, 5], pointRadius: 0 },
           ],
         },
         options: {
@@ -760,7 +760,7 @@
       const syncPayload = await request("/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: activeUserId, days_back: Number(ui.daysBack.value || 90) }),
+        body: JSON.stringify({ user_id: activeUserId, days_back: 90 }),
       });
       ui.apiOut.textContent = JSON.stringify(syncPayload, null, 2);
 
