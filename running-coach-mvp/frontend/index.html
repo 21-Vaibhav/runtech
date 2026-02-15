@@ -420,6 +420,20 @@
     }
     if (savedUser) ui.userId.value = savedUser;
 
+    function sessionToken() {
+      return localStorage.getItem("rc_session_token") || "";
+    }
+
+    function setSessionToken(token, expiresAt) {
+      if (token) localStorage.setItem("rc_session_token", token);
+      if (expiresAt) localStorage.setItem("rc_session_expires_at", String(expiresAt));
+    }
+
+    function clearSessionToken() {
+      localStorage.removeItem("rc_session_token");
+      localStorage.removeItem("rc_session_expires_at");
+    }
+
     function apiBase() {
       const v = (ui.apiBase.value.trim() || runtimeBase).replace(/\/$/, "");
       localStorage.setItem("rc_api_base", v);
@@ -440,6 +454,9 @@
     function applyOAuthSuccess(payload) {
       if (payload && payload.user_id) {
         ui.userId.value = payload.user_id;
+      }
+      if (payload && payload.session_token) {
+        setSessionToken(payload.session_token, payload.session_expires_at);
       }
       localStorage.removeItem("rc_oauth_state");
       ui.apiOut.textContent = JSON.stringify(payload || { ok: true }, null, 2);
@@ -478,11 +495,16 @@
 
     async function request(path, options = {}) {
       const headers = new Headers(options.headers || {});
+      const token = sessionToken();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
       const response = await fetch(`${apiBase()}${path}`, { ...options, headers });
       const raw = await response.text();
       if (!response.ok) {
         let detail = raw;
         try { detail = JSON.parse(raw).detail || raw; } catch (_) {}
+        if (response.status === 401) {
+          clearSessionToken();
+        }
         throw new Error(`${response.status}: ${detail}`);
       }
       return raw ? JSON.parse(raw) : {};
@@ -640,17 +662,6 @@
       setStatus("Dashboard updated", "good");
     }
 
-    async function ensureUserReady() {
-      const users = await request("/users");
-      if (!Array.isArray(users) || users.length === 0) {
-        throw new Error("No linked user found. Click Open Auth and finish Strava authorization first.");
-      }
-      const current = Number(ui.userId.value || 0);
-      const selected = users.find((u) => Number(u.id) === current) || users[0];
-      ui.userId.value = selected.id;
-      return selected.id;
-    }
-
     function waitForOAuthCompletion(timeoutMs = 180000) {
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
@@ -674,12 +685,16 @@
     }
 
     async function connectIfNeeded(popup) {
-      const users = await request("/users");
-      if (Array.isArray(users) && users.length) {
-        const current = Number(ui.userId.value || 0);
-        const selected = users.find((u) => Number(u.id) === current) || users[0];
-        ui.userId.value = selected.id;
-        return selected.id;
+      if (sessionToken()) {
+        try {
+          const me = await request("/me");
+          if (me && me.id) {
+            ui.userId.value = me.id;
+            return Number(me.id);
+          }
+        } catch (_) {
+          clearSessionToken();
+        }
       }
 
       const authData = await request("/auth/url");

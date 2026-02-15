@@ -131,3 +131,4 @@ Current local status: all tests pass.
 
 - Configure `CORS_ORIGINS` to your frontend origins in production.
 - OAuth uses signed `state` tokens; always complete auth from `/auth/url`.
+- Session tokens are required for user data endpoints; set `SESSION_SECRET` in production.

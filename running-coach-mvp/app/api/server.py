@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import logging
 import json
+import base64
+import hashlib
+import hmac
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -11,7 +14,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -138,6 +141,46 @@ def get_narrator() -> LocalNarrator:
     return _NARRATOR
 
 
+def _token_secret() -> str:
+    return settings.session_secret or settings.strava_client_secret or "running-coach-session-secret"
+
+
+def _create_session_token(user_id: int, ttl_seconds: int = 60 * 60 * 24 * 14) -> tuple[str, int]:
+    expires_at = int(time.time()) + ttl_seconds
+    payload = f"{user_id}.{expires_at}"
+    sig = hmac.new(_token_secret().encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    token = base64.urlsafe_b64encode(f"{payload}.{sig}".encode("utf-8")).decode("utf-8").rstrip("=")
+    return token, expires_at
+
+
+def _parse_session_token(token: str) -> int:
+    try:
+        padded = token + "=" * ((4 - len(token) % 4) % 4)
+        raw = base64.urlsafe_b64decode(padded.encode("utf-8")).decode("utf-8")
+        user_s, exp_s, sig = raw.split(".", 2)
+        payload = f"{user_s}.{exp_s}"
+        expected = hmac.new(_token_secret().encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected):
+            raise ValueError("invalid signature")
+        if int(exp_s) < int(time.time()):
+            raise ValueError("expired token")
+        return int(user_s)
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Unauthorized") from exc
+
+
+def require_session_user(authorization: str | None = Header(default=None, alias="Authorization")) -> int:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    token = authorization.split(" ", 1)[1].strip()
+    return _parse_session_token(token)
+
+
+def _ensure_same_user(auth_user_id: int, target_user_id: int) -> None:
+    if auth_user_id != target_user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
 @app.middleware("http")
 async def security_headers_middleware(request: Request, call_next):
     """Attach baseline security headers and normalized error response."""
@@ -190,7 +233,13 @@ def _upsert_user_from_token_payload(token_payload: dict[str, Any], db: Session) 
         user.refresh_token = token_payload["refresh_token"]
         user.token_expires_at = token_payload["expires_at"]
 
-    return {"user_id": user.id, "strava_athlete_id": athlete_id}
+    session_token, session_expires_at = _create_session_token(user.id)
+    return {
+        "user_id": user.id,
+        "strava_athlete_id": athlete_id,
+        "session_token": session_token,
+        "session_expires_at": session_expires_at,
+    }
 
 
 def _readiness_label(form: float, acwr_value: float, confidence: float) -> str:
@@ -313,8 +362,10 @@ def callback_alias(
 
 
 @app.get("/users")
-def list_users(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
-    rows = db.scalars(select(User).order_by(User.id.asc())).all()
+def list_users(auth_user_id: int = Depends(require_session_user), db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    row = db.get(User, auth_user_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="User not found")
     return [
         {
             "id": row.id,
@@ -322,12 +373,25 @@ def list_users(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
             "username": row.username,
             "token_expires_at": row.token_expires_at,
         }
-        for row in rows
     ]
 
 
+@app.get("/me")
+def me(auth_user_id: int = Depends(require_session_user), db: Session = Depends(get_db)) -> dict[str, Any]:
+    row = db.get(User, auth_user_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {
+        "id": row.id,
+        "strava_athlete_id": row.strava_athlete_id,
+        "username": row.username,
+        "token_expires_at": row.token_expires_at,
+    }
+
+
 @app.post("/sync")
-def sync(payload: SyncRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+def sync(payload: SyncRequest, auth_user_id: int = Depends(require_session_user), db: Session = Depends(get_db)) -> dict[str, Any]:
+    _ensure_same_user(auth_user_id, payload.user_id)
     t0 = time.perf_counter()
     try:
         result = sync_activities(db=db, user_id=payload.user_id, days_back=payload.days_back)
@@ -345,7 +409,8 @@ def sync(payload: SyncRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 @app.get("/state/{user_id}")
-def state(user_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def state(user_id: int, auth_user_id: int = Depends(require_session_user), db: Session = Depends(get_db)) -> dict[str, Any]:
+    _ensure_same_user(auth_user_id, user_id)
     cache = db.scalar(select(UserStateCache).where(UserStateCache.user_id == user_id))
     if cache is None:
         raise HTTPException(status_code=404, detail="State cache missing. Run update-state first.")
@@ -362,8 +427,9 @@ def state(user_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 @app.post("/state/update/{user_id}")
-def state_update(user_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def state_update(user_id: int, auth_user_id: int = Depends(require_session_user), db: Session = Depends(get_db)) -> dict[str, Any]:
     """Explicitly recompute state cache for the user."""
+    _ensure_same_user(auth_user_id, user_id)
 
     t0 = time.perf_counter()
     try:
@@ -413,10 +479,12 @@ def _build_recommendation_payload(
 async def recommend(
     user_id: int,
     payload: RecommendRequest,
+    auth_user_id: int = Depends(require_session_user),
     db: Session = Depends(get_db),
     narrator: LocalNarrator = Depends(get_narrator),
 ) -> dict[str, Any]:
     """Generate recommendation from cached state and cache result for 6h."""
+    _ensure_same_user(auth_user_id, user_id)
 
     t0 = time.perf_counter()
     cache_hit = _REC_CACHE.get(user_id=user_id, day=date.today())
@@ -438,7 +506,8 @@ async def recommend(
 
 
 @app.post("/feedback")
-def feedback(payload: FeedbackRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+def feedback(payload: FeedbackRequest, auth_user_id: int = Depends(require_session_user), db: Session = Depends(get_db)) -> dict[str, Any]:
+    _ensure_same_user(auth_user_id, payload.user_id)
     try:
         log = log_feedback(
             db=db,
@@ -454,7 +523,8 @@ def feedback(payload: FeedbackRequest, db: Session = Depends(get_db)) -> dict[st
 
 
 @app.get("/stats/{user_id}")
-def stats(user_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def stats(user_id: int, auth_user_id: int = Depends(require_session_user), db: Session = Depends(get_db)) -> dict[str, Any]:
+    _ensure_same_user(auth_user_id, user_id)
     summary = compute_stats(db, user_id)
     return {
         "agreement_rate": summary.agreement_rate,
@@ -469,9 +539,11 @@ def stats(user_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
 def history(
     user_id: int,
     days: int = 30,
+    auth_user_id: int = Depends(require_session_user),
     db: Session = Depends(get_db),
     narrator: LocalNarrator = Depends(get_narrator),
 ) -> dict[str, Any]:
+    _ensure_same_user(auth_user_id, user_id)
     since = datetime.utcnow() - timedelta(days=days)
     rows = db.scalars(
         select(Activity)
@@ -509,7 +581,8 @@ def history(
 
 
 @app.get("/dashboard/{user_id}")
-def dashboard(user_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def dashboard(user_id: int, auth_user_id: int = Depends(require_session_user), db: Session = Depends(get_db)) -> dict[str, Any]:
+    _ensure_same_user(auth_user_id, user_id)
     now = datetime.utcnow()
     week_ago = now - timedelta(days=7)
 

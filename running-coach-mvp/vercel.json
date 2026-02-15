@@ -8,7 +8,7 @@
   },
   "routes": [
     {
-      "src": "/(auth/url|auth/callback|callback|users|sync|state(?:/.*)?|recommend(?:/.*)?|feedback|stats(?:/.*)?|history(?:/.*)?|dashboard(?:/.*)?|docs|redoc|openapi\\.json)",
+      "src": "/(auth/url|auth/callback|callback|users|me|sync|state(?:/.*)?|recommend(?:/.*)?|feedback|stats(?:/.*)?|history(?:/.*)?|dashboard(?:/.*)?|docs|redoc|openapi\\.json)",
       "dest": "api/index.py"
     },
     {
