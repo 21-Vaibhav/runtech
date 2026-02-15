@@ -2,7 +2,6 @@
   "version": 2,
   "functions": {
     "api/index.py": {
-      "runtime": "python3.12",
       "maxDuration": 30,
       "excludeFiles": "{tests/**,.venv/**,**/__pycache__/**,*.db,*.sqlite,*.sqlite3,.pytest_cache/**,node_modules/**,.git/**}"
     }
