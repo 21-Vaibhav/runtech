@@ -589,8 +589,8 @@ def dashboard(user_id: int, auth_user_id: int = Depends(require_session_user), d
 
     rec_row = db.scalar(
         select(Recommendation)
-        .where(Recommendation.user_id == user_id, Recommendation.recommendation_date == date.today())
-        .order_by(Recommendation.id.desc())
+        .where(Recommendation.user_id == user_id)
+        .order_by(Recommendation.recommendation_date.desc(), Recommendation.id.desc())
     )
 
     activity_days = {row.start_date.date() for row in db.scalars(select(Activity).where(Activity.user_id == user_id)).all()}
@@ -635,6 +635,24 @@ def dashboard(user_id: int, auth_user_id: int = Depends(require_session_user), d
         weekly_load_bucket[key] = weekly_load_bucket.get(key, 0.0) + row.metric_value
     weekly_load_trend = [{"week": k, "value": round(v, 2)} for k, v in weekly_load_bucket.items()]
 
+    latest_recommendation_payload = None
+    if rec_row is not None:
+        rec_reason = rec_row.reasoning_dict or {}
+        rec_form = float(rec_reason.get("form", form))
+        rec_acwr = float(rec_reason.get("acwr", acwr_value))
+        readiness = _readiness_label(form=rec_form, acwr_value=rec_acwr, confidence=rec_row.confidence_score)
+        action_msg = recommendation_message(rec_form, rec_acwr, rec_row.recommended_action)
+        latest_recommendation_payload = {
+            "date": rec_row.recommendation_date.isoformat(),
+            "action": rec_row.recommended_action,
+            "confidence": rec_row.confidence_score,
+            "reasoning": rec_reason,
+            "action_message": action_msg,
+            "readiness": readiness,
+            "readiness_color": readiness_color(readiness),
+            "narrative": action_msg,
+        }
+
     return {
         "today": date.today().isoformat(),
         "weekly": {
@@ -658,15 +676,7 @@ def dashboard(user_id: int, auth_user_id: int = Depends(require_session_user), d
         ),
         "acwr": round(acwr_value, 2),
         "readiness": _readiness_label(form=form, acwr_value=acwr_value, confidence=confidence),
-        "latest_recommendation": (
-            {
-                "action": rec_row.recommended_action,
-                "confidence": rec_row.confidence_score,
-                "reasoning": rec_row.reasoning_dict,
-            }
-            if rec_row
-            else None
-        ),
+        "latest_recommendation": latest_recommendation_payload,
         "trends": {
             "acwr": acwr_trend,
             "state": state_trend,
