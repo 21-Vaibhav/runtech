@@ -303,8 +303,6 @@
           <h2>One-Click Flow</h2>
           <label for="apiBase">API base URL</label>
           <input id="apiBase" value="" placeholder="Auto: current deployment origin" />
-          <label for="userId">User ID</label>
-          <input id="userId" type="number" min="1" value="1" />
           <label for="daysBack">Sync history (days)</label>
           <input id="daysBack" type="number" min="1" max="365" value="90" />
 
@@ -380,6 +378,7 @@
       charts: { state: null, load: null, acwr: null },
       oauthResolve: null,
       oauthReject: null,
+      currentUserId: null,
     };
 
     const ui = {
@@ -387,7 +386,6 @@
       statusText: $("statusText"),
       statusDot: $("statusDot"),
       apiBase: $("apiBase"),
-      userId: $("userId"),
       daysBack: $("daysBack"),
       apiOut: $("apiOut"),
       kReadiness: $("kReadiness"),
@@ -411,14 +409,12 @@
         : "http://localhost:8000";
     const isDeployedHost = !["localhost", "127.0.0.1"].includes(window.location.hostname);
     const savedBase = localStorage.getItem("rc_api_base");
-    const savedUser = localStorage.getItem("rc_user_id");
     if (savedBase && !(isDeployedHost && savedBase.includes("localhost"))) {
       ui.apiBase.value = savedBase;
     } else {
       ui.apiBase.value = runtimeBase;
       localStorage.setItem("rc_api_base", runtimeBase);
     }
-    if (savedUser) ui.userId.value = savedUser;
 
     function sessionToken() {
       return localStorage.getItem("rc_session_token") || "";
@@ -440,12 +436,6 @@
       return v;
     }
 
-    function userId() {
-      const v = Number(String(ui.userId.value || "1").trim());
-      localStorage.setItem("rc_user_id", String(v));
-      return v;
-    }
-
     function setStatus(text, tone = "good") {
       ui.statusText.textContent = text;
       ui.statusDot.className = `dot ${tone === "good" ? "" : tone}`.trim();
@@ -453,7 +443,7 @@
 
     function applyOAuthSuccess(payload) {
       if (payload && payload.user_id) {
-        ui.userId.value = payload.user_id;
+        appState.currentUserId = Number(payload.user_id);
       }
       if (payload && payload.session_token) {
         setSessionToken(payload.session_token, payload.session_expires_at);
@@ -656,7 +646,10 @@
     }
 
     async function refreshDashboard() {
-      const data = await request(`/dashboard/${userId()}`);
+      if (!appState.currentUserId) {
+        throw new Error("Not connected yet. Click Connect + Sync + Recommend first.");
+      }
+      const data = await request(`/dashboard/${appState.currentUserId}`);
       ui.apiOut.textContent = JSON.stringify(data, null, 2);
       renderDashboard(data);
       setStatus("Dashboard updated", "good");
@@ -689,7 +682,7 @@
         try {
           const me = await request("/me");
           if (me && me.id) {
-            ui.userId.value = me.id;
+            appState.currentUserId = Number(me.id);
             return Number(me.id);
           }
         } catch (_) {
@@ -710,7 +703,7 @@
       setStatus("Complete Strava authorization in the popup...", "warn");
       const authResult = await waitForOAuthCompletion();
       applyOAuthSuccess(authResult || {});
-      return Number((authResult || {}).user_id || ui.userId.value || 1);
+      return Number((authResult || {}).user_id || appState.currentUserId || 1);
     }
 
     async function runFullFlow(popup) {
@@ -758,11 +751,12 @@
       btn.addEventListener("click", () => run("Submitting feedback...", async () => {
         const action = btn.dataset.act;
         const today = new Date().toISOString().slice(0, 10);
+        const activeUserId = await connectIfNeeded(null);
         const payload = await request("/feedback", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            user_id: userId(),
+            user_id: activeUserId,
             feedback_date: today,
             actual_action: action,
             observed_outcome: {},
