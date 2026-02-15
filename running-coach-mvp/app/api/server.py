@@ -165,18 +165,6 @@ def _upsert_user_from_token_payload(token_payload: dict[str, Any], db: Session) 
     return {"user_id": user.id, "strava_athlete_id": athlete_id}
 
 
-def _existing_user_fallback(db: Session, note: str) -> dict[str, Any] | None:
-    row = db.scalar(select(User).order_by(User.id.asc()))
-    if row is None:
-        return None
-    return {
-        "user_id": row.id,
-        "strava_athlete_id": row.strava_athlete_id,
-        "username": row.username,
-        "note": note,
-    }
-
-
 def _readiness_label(form: float, acwr_value: float, confidence: float) -> str:
     if acwr_value > 1.5 or form < -8:
         return "caution"
@@ -198,12 +186,13 @@ def auth_callback(payload: AuthCallbackRequest, db: Session = Depends(get_db)) -
     except Exception as exc:
         message = str(exc)
         if "invalid_grant" in message.lower():
-            fallback = _existing_user_fallback(
-                db,
-                note="OAuth code was already used. Returning existing linked user.",
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "OAuth code is expired/used or redirect URI mismatched. "
+                    "Start again from /auth/url and complete authorization with the same redirect URI."
+                ),
             )
-            if fallback is not None:
-                return fallback
         raise HTTPException(status_code=400, detail=f"OAuth exchange failed: {exc}") from exc
     return _upsert_user_from_token_payload(token_payload, db)
 

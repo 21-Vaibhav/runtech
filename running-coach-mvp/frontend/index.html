@@ -297,7 +297,7 @@
         <section class="card controls">
           <h2>Controls</h2>
           <label for="apiBase">API base URL</label>
-          <input id="apiBase" value="http://localhost:8000" />
+          <input id="apiBase" value="" placeholder="Auto: current deployment origin" />
           <label for="userId">User ID</label>
           <input id="userId" type="number" min="1" value="1" />
           <label for="oauthCode">OAuth code or callback URL</label>
@@ -395,13 +395,23 @@
       activityMix: $("activityMix"),
     };
 
+    const runtimeBase =
+      (window.location.protocol === "http:" || window.location.protocol === "https:")
+        ? window.location.origin
+        : "http://localhost:8000";
+    const isDeployedHost = !["localhost", "127.0.0.1"].includes(window.location.hostname);
     const savedBase = localStorage.getItem("rc_api_base");
     const savedUser = localStorage.getItem("rc_user_id");
-    if (savedBase) ui.apiBase.value = savedBase;
+    if (savedBase && !(isDeployedHost && savedBase.includes("localhost"))) {
+      ui.apiBase.value = savedBase;
+    } else {
+      ui.apiBase.value = runtimeBase;
+      localStorage.setItem("rc_api_base", runtimeBase);
+    }
     if (savedUser) ui.userId.value = savedUser;
 
     function apiBase() {
-      const v = ui.apiBase.value.trim().replace(/\/$/, "");
+      const v = (ui.apiBase.value.trim() || runtimeBase).replace(/\/$/, "");
       localStorage.setItem("rc_api_base", v);
       return v;
     }
