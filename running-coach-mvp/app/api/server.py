@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -46,7 +46,7 @@ app.add_middleware(
     allow_origins=list(settings.cors_origins),
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-API-Key"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 
@@ -135,15 +135,6 @@ def get_narrator() -> LocalNarrator:
     if _NARRATOR is None:
         _NARRATOR = LocalNarrator()
     return _NARRATOR
-
-
-def require_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
-    """Optional API key gate. Enforced only when API_KEY env is set."""
-
-    if not settings.api_key:
-        return
-    if x_api_key != settings.api_key:
-        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 @app.middleware("http")
@@ -255,7 +246,7 @@ def callback_alias(
 
 
 @app.get("/users")
-def list_users(db: Session = Depends(get_db), _: None = Depends(require_api_key)) -> list[dict[str, Any]]:
+def list_users(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     rows = db.scalars(select(User).order_by(User.id.asc())).all()
     return [
         {
@@ -269,7 +260,7 @@ def list_users(db: Session = Depends(get_db), _: None = Depends(require_api_key)
 
 
 @app.post("/sync")
-def sync(payload: SyncRequest, db: Session = Depends(get_db), _: None = Depends(require_api_key)) -> dict[str, Any]:
+def sync(payload: SyncRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     t0 = time.perf_counter()
     try:
         result = sync_activities(db=db, user_id=payload.user_id, days_back=payload.days_back)
@@ -287,7 +278,7 @@ def sync(payload: SyncRequest, db: Session = Depends(get_db), _: None = Depends(
 
 
 @app.get("/state/{user_id}")
-def state(user_id: int, db: Session = Depends(get_db), _: None = Depends(require_api_key)) -> dict[str, Any]:
+def state(user_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     cache = db.scalar(select(UserStateCache).where(UserStateCache.user_id == user_id))
     if cache is None:
         raise HTTPException(status_code=404, detail="State cache missing. Run update-state first.")
@@ -304,7 +295,7 @@ def state(user_id: int, db: Session = Depends(get_db), _: None = Depends(require
 
 
 @app.post("/state/update/{user_id}")
-def state_update(user_id: int, db: Session = Depends(get_db), _: None = Depends(require_api_key)) -> dict[str, Any]:
+def state_update(user_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     """Explicitly recompute state cache for the user."""
 
     t0 = time.perf_counter()
@@ -357,7 +348,6 @@ async def recommend(
     payload: RecommendRequest,
     db: Session = Depends(get_db),
     narrator: LocalNarrator = Depends(get_narrator),
-    _: None = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Generate recommendation from cached state and cache result for 6h."""
 
@@ -381,7 +371,7 @@ async def recommend(
 
 
 @app.post("/feedback")
-def feedback(payload: FeedbackRequest, db: Session = Depends(get_db), _: None = Depends(require_api_key)) -> dict[str, Any]:
+def feedback(payload: FeedbackRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     try:
         log = log_feedback(
             db=db,
@@ -397,7 +387,7 @@ def feedback(payload: FeedbackRequest, db: Session = Depends(get_db), _: None = 
 
 
 @app.get("/stats/{user_id}")
-def stats(user_id: int, db: Session = Depends(get_db), _: None = Depends(require_api_key)) -> dict[str, Any]:
+def stats(user_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     summary = compute_stats(db, user_id)
     return {
         "agreement_rate": summary.agreement_rate,
@@ -414,7 +404,6 @@ def history(
     days: int = 30,
     db: Session = Depends(get_db),
     narrator: LocalNarrator = Depends(get_narrator),
-    _: None = Depends(require_api_key),
 ) -> dict[str, Any]:
     since = datetime.utcnow() - timedelta(days=days)
     rows = db.scalars(
@@ -453,7 +442,7 @@ def history(
 
 
 @app.get("/dashboard/{user_id}")
-def dashboard(user_id: int, db: Session = Depends(get_db), _: None = Depends(require_api_key)) -> dict[str, Any]:
+def dashboard(user_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     now = datetime.utcnow()
     week_ago = now - timedelta(days=7)
 
