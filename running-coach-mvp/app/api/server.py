@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -13,7 +14,7 @@ from urllib.parse import parse_qs, urlparse
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -219,30 +220,91 @@ def auth_callback(payload: AuthCallbackRequest, db: Session = Depends(get_db)) -
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "OAuth code is expired/used or redirect URI mismatched. "
-                    "Start again from /auth/url and complete authorization with the same redirect URI."
+                    "OAuth code is invalid/expired/already used, or redirect URI mismatched. "
+                    "If you authorized in browser already, callback may have already completed and consumed the code. "
+                    "Retry from /auth/url."
                 ),
             )
         raise HTTPException(status_code=400, detail=f"OAuth exchange failed: {exc}") from exc
     return _upsert_user_from_token_payload(token_payload, db)
 
 
+def _oauth_callback_html(payload: dict[str, Any], error: str | None = None) -> HTMLResponse:
+    message = {
+        "type": "running_coach_oauth_success" if not error else "running_coach_oauth_error",
+        "payload": payload,
+        "error": error,
+    }
+    script_data = json.dumps(message)
+    html = f"""
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>RunTech OAuth</title>
+    <style>
+      body {{ font-family: Segoe UI, Arial, sans-serif; background:#0b1220; color:#e6f0ff; margin:0; display:flex; min-height:100vh; align-items:center; justify-content:center; }}
+      .card {{ max-width:560px; border:1px solid #2b4768; border-radius:12px; padding:18px; background:#111d30; }}
+      h2 {{ margin:0 0 8px; }}
+      p {{ color:#b8cee8; line-height:1.45; }}
+      .ok {{ color:#8ff3c4; }}
+      .err {{ color:#ffb1bd; }}
+      button {{ margin-top:10px; border:none; border-radius:8px; padding:8px 12px; font-weight:700; cursor:pointer; }}
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h2 class="{'ok' if not error else 'err'}">{'Strava connected' if not error else 'OAuth failed'}</h2>
+      <p>{'You can close this tab and return to the app.' if not error else error}</p>
+      <button onclick="window.location.href='/'">Return to app</button>
+    </div>
+    <script>
+      (function () {{
+        const msg = {script_data};
+        try {{
+          if (window.opener && window.opener !== window) {{
+            window.opener.postMessage(msg, window.location.origin);
+            setTimeout(() => window.close(), 500);
+          }}
+        }} catch (_) {{}}
+      }})();
+    </script>
+  </body>
+</html>
+"""
+    return HTMLResponse(content=html, status_code=200 if not error else 400)
+
+
 @app.get("/auth/callback")
 def auth_callback_get(
+    request: Request,
     code: str = Query(..., min_length=1),
     state: str | None = Query(default=None, min_length=8, max_length=256),
+    json_mode: bool = Query(default=False, alias="json"),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    return auth_callback(AuthCallbackRequest(code=code, state=state), db)
+    try:
+        result = auth_callback(AuthCallbackRequest(code=code, state=state), db)
+    except HTTPException as exc:
+        accepts_html = "text/html" in request.headers.get("accept", "")
+        if accepts_html and not json_mode:
+            return _oauth_callback_html({}, error=str(exc.detail))
+        raise
+    accepts_html = "text/html" in request.headers.get("accept", "")
+    if accepts_html and not json_mode:
+        return _oauth_callback_html(result)
+    return result
 
 
 @app.get("/callback")
 def callback_alias(
+    request: Request,
     code: str = Query(..., min_length=1),
     state: str | None = Query(default=None, min_length=8, max_length=256),
+    json_mode: bool = Query(default=False, alias="json"),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    return auth_callback(AuthCallbackRequest(code=code, state=state), db)
+    return auth_callback_get(request=request, code=code, state=state, json_mode=json_mode, db=db)
 
 
 @app.get("/users")

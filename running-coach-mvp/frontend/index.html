@@ -201,6 +201,11 @@
       gap: 12px;
     }
     .chart-wrap { height: 220px; }
+    .chart-note {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 0.76rem;
+    }
 
     .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
     .chip {
@@ -352,9 +357,18 @@
         <section class="card">
           <h2>Trends</h2>
           <div class="chart-grid">
-            <div class="chart-wrap"><canvas id="stateChart"></canvas></div>
-            <div class="chart-wrap"><canvas id="loadChart"></canvas></div>
-            <div class="chart-wrap"><canvas id="acwrChart"></canvas></div>
+            <div>
+              <div class="chart-wrap"><canvas id="stateChart"></canvas></div>
+              <div id="stateChartNote" class="chart-note"></div>
+            </div>
+            <div>
+              <div class="chart-wrap"><canvas id="loadChart"></canvas></div>
+              <div id="loadChartNote" class="chart-note"></div>
+            </div>
+            <div>
+              <div class="chart-wrap"><canvas id="acwrChart"></canvas></div>
+              <div id="acwrChartNote" class="chart-note"></div>
+            </div>
           </div>
           <div class="chips" id="activityMix"></div>
         </section>
@@ -393,6 +407,9 @@
       recReason: $("recReason"),
       narrative: $("narrative"),
       activityMix: $("activityMix"),
+      stateChartNote: $("stateChartNote"),
+      loadChartNote: $("loadChartNote"),
+      acwrChartNote: $("acwrChartNote"),
     };
 
     const runtimeBase =
@@ -425,6 +442,15 @@
     function setStatus(text, tone = "good") {
       ui.statusText.textContent = text;
       ui.statusDot.className = `dot ${tone === "good" ? "" : tone}`.trim();
+    }
+
+    function applyOAuthSuccess(payload) {
+      if (payload && payload.user_id) {
+        ui.userId.value = payload.user_id;
+      }
+      ui.apiOut.textContent = JSON.stringify(payload || { ok: true }, null, 2);
+      setStatus("Strava connected. You can sync now.", "good");
+      refreshDashboard().catch(() => {});
     }
 
     function setBusy(on, label = "Working...") {
@@ -495,9 +521,22 @@
     }
 
     function renderCharts(dashboard) {
-      const stateTrend = dashboard?.trends?.state || [];
-      const acwrTrend = dashboard?.trends?.acwr || [];
+      let stateTrend = dashboard?.trends?.state || [];
+      let acwrTrend = dashboard?.trends?.acwr || [];
       const loadTrend = dashboard?.trends?.weekly_load || [];
+
+      const today = dashboard?.today || new Date().toISOString().slice(0, 10);
+      if (!stateTrend.length && dashboard?.state) {
+        stateTrend = [{
+          date: today,
+          fitness: Number(dashboard.state.fitness || 0),
+          fatigue: Number(dashboard.state.fatigue || 0),
+          form: Number(dashboard.state.form || 0),
+        }];
+      }
+      if (!acwrTrend.length && typeof dashboard?.acwr === "number") {
+        acwrTrend = [{ date: today, value: Number(dashboard.acwr || 0) }];
+      }
 
       const stateLabels = stateTrend.map((x) => x.date);
       const fitnessData = stateTrend.map((x) => Number(x.fitness || 0));
@@ -507,17 +546,30 @@
       const loadLabels = loadTrend.map((x) => x.week);
       const loadData = loadTrend.map((x) => Number(x.value || 0));
 
+      ui.stateChartNote.textContent = stateTrend.length <= 1
+        ? "Only one state snapshot available. Run sync + update state on more days to see trend lines."
+        : "";
+      ui.acwrChartNote.textContent = acwrTrend.length <= 1
+        ? "ACWR trend needs more daily load history. Current value is shown."
+        : "";
+      ui.loadChartNote.textContent = loadTrend.length <= 1
+        ? "Weekly load builds as more sessions are synced."
+        : "";
+
       destroyChart(appState.charts.state);
       destroyChart(appState.charts.acwr);
       destroyChart(appState.charts.load);
+
+      const statePointRadius = stateTrend.length <= 2 ? 4 : 0;
+      const acwrPointRadius = acwrTrend.length <= 2 ? 4 : 0;
 
       appState.charts.state = new Chart($("stateChart"), {
         type: "line",
         data: {
           labels: stateLabels,
           datasets: [
-            { label: "Fitness", data: fitnessData, borderColor: "#62d9ff", tension: 0.3, pointRadius: 0 },
-            { label: "Fatigue", data: fatigueData, borderColor: "#ff8594", tension: 0.3, pointRadius: 0 },
+            { label: "Fitness", data: fitnessData, borderColor: "#62d9ff", tension: 0.3, pointRadius: statePointRadius },
+            { label: "Fatigue", data: fatigueData, borderColor: "#ff8594", tension: 0.3, pointRadius: statePointRadius },
           ],
         },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: "#dcecff" } } }, scales: { x: { ticks: { color: "#96abc7" } }, y: { ticks: { color: "#96abc7" } } } },
@@ -531,8 +583,14 @@
 
       appState.charts.acwr = new Chart($("acwrChart"), {
         type: "line",
-        data: { labels: acwrLabels, datasets: [{ label: "ACWR", data: acwrData, borderColor: "#ffd27a", backgroundColor: "rgba(255,210,122,0.2)", fill: true, tension: 0.28, pointRadius: 0 }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: "#dcecff" } } }, scales: { x: { ticks: { color: "#96abc7" } }, y: { ticks: { color: "#96abc7" } } } },
+        data: {
+          labels: acwrLabels,
+          datasets: [
+            { label: "ACWR", data: acwrData, borderColor: "#ffd27a", backgroundColor: "rgba(255,210,122,0.2)", fill: true, tension: 0.28, pointRadius: acwrPointRadius },
+            { label: "Risk 1.5", data: acwrLabels.map(() => 1.5), borderColor: "rgba(255,133,148,0.9)", borderDash: [6, 5], pointRadius: 0 },
+          ],
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: "#dcecff" } } }, scales: { x: { ticks: { color: "#96abc7" } }, y: { min: 0, ticks: { color: "#96abc7" } } } },
       });
     }
 
@@ -616,7 +674,7 @@
       ui.apiOut.textContent = JSON.stringify(payload, null, 2);
       if (payload.state) localStorage.setItem("rc_oauth_state", payload.state);
       window.open(payload.url, "_blank", "noopener");
-      setStatus("Auth URL opened", "good");
+      setStatus("Auth window opened. Complete Strava authorization there.", "good");
     }));
 
     $("exchangeBtn").addEventListener("click", () => run("Exchanging code...", async () => {
@@ -629,8 +687,18 @@
         body: JSON.stringify({ code, state }),
       });
       ui.apiOut.textContent = JSON.stringify(payload, null, 2);
-      if (payload.user_id) ui.userId.value = payload.user_id;
-      setStatus("Code exchange complete", "good");
+      applyOAuthSuccess(payload);
+    }));
+
+    window.addEventListener("message", (event) => {
+      if (event.origin !== window.location.origin) return;
+      const msg = event.data || {};
+      if (msg.type === "running_coach_oauth_success") {
+        applyOAuthSuccess(msg.payload || {});
+      } else if (msg.type === "running_coach_oauth_error") {
+        ui.apiOut.textContent = JSON.stringify(msg, null, 2);
+        setStatus(msg.error || "OAuth failed", "bad");
+      }
     }));
 
     $("syncBtn").addEventListener("click", () => run("Syncing activities...", async () => {
