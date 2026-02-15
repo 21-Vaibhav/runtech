@@ -730,7 +730,7 @@
         setStatus(msg.error || "OAuth failed", "bad");
         if (appState.oauthReject) appState.oauthReject(msg.error || "OAuth failed");
       }
-    }));
+    });
 
     $("fullFlowBtn").addEventListener("click", () => {
       const popup = window.open("", "running_coach_oauth", "width=520,height=760");
