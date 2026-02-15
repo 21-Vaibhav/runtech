@@ -3,68 +3,37 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RunTech Coach Dashboard</title>
+  <title>RunTech Coach</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     :root {
-      --bg: #06090f;
-      --bg-2: #0d1420;
-      --panel: #121d2d;
-      --panel-2: #16263a;
-      --line: #2a415f;
-      --text: #edf5ff;
-      --muted: #9fb2cc;
-      --good: #5bf3b0;
-      --warn: #ffd27a;
-      --risk: #ff8594;
-      --accent: #62d9ff;
-      --radius: 16px;
-      --shadow: 0 12px 40px rgba(0, 0, 0, 0.34);
+      --bg: #090d14;
+      --bg-soft: #101826;
+      --card: rgba(18, 28, 44, 0.9);
+      --card-2: rgba(21, 33, 52, 0.9);
+      --line: #283a56;
+      --text: #edf3ff;
+      --muted: #9eb0c9;
+      --blue: #6fd9ff;
+      --teal: #7ff0c7;
+      --amber: #ffd68a;
+      --rose: #ff95a5;
+      --radius: 18px;
+      --shadow: 0 18px 60px rgba(0, 0, 0, 0.42);
     }
 
     * { box-sizing: border-box; }
+
     body {
       margin: 0;
       color: var(--text);
       font-family: "Segoe UI", Tahoma, sans-serif;
       background:
-        radial-gradient(1200px 600px at 100% -10%, rgba(98, 217, 255, 0.14), transparent 60%),
-        radial-gradient(700px 420px at -15% 30%, rgba(91, 243, 176, 0.11), transparent 56%),
-        linear-gradient(170deg, var(--bg), var(--bg-2));
+        radial-gradient(1000px 500px at 110% -10%, rgba(111, 217, 255, 0.16), transparent 60%),
+        radial-gradient(760px 520px at -20% 20%, rgba(127, 240, 199, 0.1), transparent 56%),
+        linear-gradient(165deg, var(--bg), var(--bg-soft));
       min-height: 100vh;
     }
-
-    .topbar {
-      position: sticky;
-      top: 0;
-      z-index: 30;
-      backdrop-filter: blur(8px);
-      background: rgba(6, 9, 15, 0.72);
-      border-bottom: 1px solid rgba(42, 65, 95, 0.55);
-    }
-
-    .topbar-inner {
-      width: min(1240px, 96vw);
-      margin: 0 auto;
-      padding: 10px 0;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-    }
-
-    .brand { font-weight: 800; letter-spacing: 0.02em; }
-    .status { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.88rem; }
-
-    .dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: var(--good);
-      box-shadow: 0 0 15px rgba(91, 243, 176, 0.6);
-    }
-    .dot.warn { background: var(--warn); box-shadow: 0 0 15px rgba(255, 210, 122, 0.6); }
-    .dot.bad { background: var(--risk); box-shadow: 0 0 15px rgba(255, 133, 148, 0.6); }
 
     .progress {
       position: fixed;
@@ -72,167 +41,261 @@
       left: 0;
       width: 0;
       height: 3px;
-      background: linear-gradient(90deg, var(--accent), var(--good));
-      box-shadow: 0 0 20px rgba(98, 217, 255, 0.7);
-      transition: width 160ms linear, opacity 260ms;
       opacity: 0;
       z-index: 99;
+      background: linear-gradient(90deg, var(--blue), var(--teal));
+      box-shadow: 0 0 18px rgba(111, 217, 255, 0.8);
+      transition: width 160ms linear, opacity 220ms;
     }
     body.busy .progress { opacity: 1; }
 
-    .wrap {
+    .shell {
       width: min(1240px, 96vw);
-      margin: 18px auto 36px;
+      margin: 18px auto 34px;
       display: grid;
       gap: 14px;
     }
 
-    .card {
-      background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    .topbar {
       border: 1px solid var(--line);
       border-radius: var(--radius);
+      background: linear-gradient(180deg, var(--card), var(--card-2));
       box-shadow: var(--shadow);
-      padding: 14px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
     }
 
-    .hero {
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .brand-dot {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: linear-gradient(145deg, #5fd4ff, #8ff3c4);
+      box-shadow: 0 8px 18px rgba(95, 212, 255, 0.45);
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--teal);
+      box-shadow: 0 0 12px rgba(127, 240, 199, 0.7);
+    }
+    .dot.warn { background: var(--amber); box-shadow: 0 0 12px rgba(255, 214, 138, 0.7); }
+    .dot.bad { background: var(--rose); box-shadow: 0 0 12px rgba(255, 149, 165, 0.7); }
+
+    .main {
       display: grid;
       grid-template-columns: 1.25fr 1fr;
       gap: 14px;
     }
-    .hero h1 { margin: 0; font-size: clamp(1.3rem, 2.2vw, 2rem); }
-    .hero p { margin: 8px 0 0; color: var(--muted); line-height: 1.45; max-width: 70ch; }
 
-    .kpis {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(120px, 1fr));
-      gap: 9px;
-      align-content: start;
-    }
-    .kpi {
-      border: 1px solid #355273;
-      border-radius: 12px;
-      background: rgba(5, 14, 26, 0.45);
-      padding: 10px;
-    }
-    .kpi .label { color: var(--muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em; }
-    .kpi .value { margin-top: 4px; font-size: 1.15rem; font-weight: 800; }
-
-    .main {
-      display: grid;
-      grid-template-columns: 320px 1fr;
-      gap: 14px;
-    }
-    .stack { display: grid; gap: 14px; }
-    h2 { margin: 0 0 10px; font-size: 1rem; letter-spacing: 0.01em; }
-
-    .controls label { display: block; color: var(--muted); font-size: 0.74rem; margin-bottom: 4px; }
-    .controls input {
-      width: 100%;
-      border: 1px solid #32506f;
-      border-radius: 10px;
-      padding: 9px 10px;
-      background: #0a1524;
-      color: var(--text);
-      margin-bottom: 8px;
-      font: inherit;
+    .card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, var(--card), var(--card-2));
+      box-shadow: var(--shadow);
+      padding: 16px;
     }
 
-    .btn-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
+    h1, h2, h3 { margin: 0; }
+    h1 { font-size: clamp(1.4rem, 2vw, 2rem); line-height: 1.2; }
+    h2 { font-size: 1.05rem; }
+
+    .muted { color: var(--muted); }
+
+    .hero p {
+      margin: 10px 0 0;
+      color: var(--muted);
+      line-height: 1.45;
+      max-width: 62ch;
+    }
+
+    .hero-actions {
+      margin-top: 14px;
+      display: flex;
       gap: 8px;
-      margin-top: 8px;
+      flex-wrap: wrap;
     }
+
     button {
       border: none;
-      border-radius: 10px;
-      padding: 10px;
+      border-radius: 12px;
+      padding: 10px 14px;
       font: inherit;
       font-weight: 700;
+      color: #072131;
       cursor: pointer;
-      color: #0a2233;
-      background: linear-gradient(90deg, var(--accent), #9aefff);
+      background: linear-gradient(90deg, var(--blue), #a2efff);
     }
-    button.soft { background: linear-gradient(90deg, #a3d7ff, #b5ffd7); }
-    button.warn { background: linear-gradient(90deg, #ffd58d, #ffe9ba); color: #3c2a0b; }
-    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    button.secondary {
+      color: #0f2b24;
+      background: linear-gradient(90deg, #adf1da, #d6ffe6);
+    }
+    button:disabled { opacity: 0.58; cursor: not-allowed; }
 
-    .recommend {
-      border: 1px solid #36597b;
+    .kpis {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
+      gap: 8px;
+    }
+    .kpi {
+      border: 1px solid #314a6a;
+      border-radius: 12px;
+      background: rgba(9, 15, 25, 0.5);
+      padding: 10px;
+    }
+    .kpi .label {
+      font-size: 0.73rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+    }
+    .kpi .value {
+      margin-top: 4px;
+      font-size: 1.15rem;
+      font-weight: 800;
+    }
+
+    .recommend-box {
+      margin-top: 10px;
+      border: 1px solid #365b7f;
       border-radius: 14px;
-      background: rgba(98, 217, 255, 0.12);
+      background: rgba(111, 217, 255, 0.12);
       padding: 12px;
     }
-    .recommend .title { color: var(--muted); font-size: 0.77rem; text-transform: uppercase; letter-spacing: 0.06em; }
-    .recommend .action { margin-top: 4px; font-size: 1.65rem; font-weight: 900; letter-spacing: 0.02em; }
-    .recommend .meta { margin-top: 6px; color: #d9ecff; font-size: 0.9rem; }
+    .recommend-title {
+      color: var(--muted);
+      text-transform: uppercase;
+      font-size: 0.74rem;
+      letter-spacing: 0.06em;
+    }
+    .recommend-action {
+      margin-top: 4px;
+      font-size: 1.7rem;
+      font-weight: 900;
+      letter-spacing: 0.02em;
+    }
+    .recommend-meta {
+      margin-top: 6px;
+      color: #d8e9ff;
+      font-size: 0.9rem;
+    }
 
     .badge {
       display: inline-block;
-      margin-top: 8px;
+      margin-top: 10px;
+      border: 1px solid #40668b;
       border-radius: 999px;
-      border: 1px solid #3d6488;
       padding: 4px 10px;
+      color: #c7e4ff;
+      background: rgba(111, 217, 255, 0.12);
       font-size: 0.8rem;
-      color: #b6ddff;
-      background: rgba(98, 217, 255, 0.12);
     }
-    .badge.ready { border-color: #3f9369; color: #95ffd0; background: rgba(91, 243, 176, 0.16); }
-    .badge.steady { border-color: #8f7a45; color: #ffe6a1; background: rgba(255, 210, 122, 0.15); }
-    .badge.caution { border-color: #955664; color: #ffc6d0; background: rgba(255, 133, 148, 0.16); }
+    .badge.ready { border-color: #3e936b; color: #9bffd7; background: rgba(127, 240, 199, 0.16); }
+    .badge.steady { border-color: #8f7948; color: #ffe4ad; background: rgba(255, 214, 138, 0.16); }
+    .badge.caution { border-color: #8f5160; color: #ffc7d0; background: rgba(255, 149, 165, 0.16); }
 
-    .reason, .narrative {
-      margin-top: 8px;
-      border: 1px solid #304f70;
+    .panel {
+      margin-top: 10px;
+      border: 1px solid #314d6f;
       border-radius: 10px;
       background: #0b1423;
-      color: #d5eaff;
+      color: #d6e8ff;
       padding: 10px;
-      font-size: 0.84rem;
+      font-size: 0.83rem;
       line-height: 1.45;
       white-space: pre-wrap;
       word-break: break-word;
     }
 
+    .grid-bottom {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr;
+      gap: 14px;
+    }
+
     .chart-grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 12px;
+      gap: 10px;
     }
     .chart-wrap { height: 220px; }
     .chart-note {
-      margin-top: 6px;
+      margin-top: 5px;
+      font-size: 0.74rem;
       color: var(--muted);
-      font-size: 0.76rem;
+      min-height: 2.1em;
     }
 
-    .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
+    .chips {
+      margin-top: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
     .chip {
       border: 1px solid #35597b;
       border-radius: 999px;
-      padding: 4px 9px;
+      padding: 4px 8px;
       font-size: 0.76rem;
       color: #c5e4ff;
-      background: rgba(98, 217, 255, 0.1);
+      background: rgba(111, 217, 255, 0.1);
     }
 
     .feedback {
+      margin-top: 10px;
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       gap: 8px;
-      margin-top: 10px;
     }
 
-    .explain details {
-      border: 1px solid #314f6f;
+    .output {
+      margin-top: 10px;
+      border: 1px solid #334f70;
       border-radius: 10px;
-      padding: 9px 10px;
-      background: rgba(7, 16, 28, 0.6);
+      background: #0b1423;
+      color: #d7e9ff;
+      padding: 10px;
+      font-size: 0.78rem;
+      max-height: 260px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    details {
+      border: 1px solid #2f4a68;
+      border-radius: 10px;
+      background: rgba(7, 15, 26, 0.6);
+      padding: 8px 10px;
       margin-top: 8px;
     }
-    .explain summary { cursor: pointer; font-weight: 700; color: #c9e6ff; }
-    .explain p { margin: 8px 0 0; color: var(--muted); font-size: 0.85rem; line-height: 1.45; }
+    summary { cursor: pointer; font-weight: 700; color: #c8e3ff; }
+    details p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.45;
+    }
 
     .skeleton {
       position: relative;
@@ -250,118 +313,104 @@
     }
     @keyframes shimmer { 100% { transform: translateX(100%); } }
 
-    .output {
-      margin-top: 10px;
-      border: 1px solid #324f70;
-      border-radius: 10px;
-      background: #0b1423;
-      color: #d5eaff;
-      padding: 10px;
-      font-size: 0.78rem;
-      max-height: 240px;
-      overflow: auto;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-
     @media (max-width: 1080px) {
-      .hero { grid-template-columns: 1fr; }
-      .main { grid-template-columns: 1fr; }
+      .main, .grid-bottom { grid-template-columns: 1fr; }
       .chart-grid { grid-template-columns: 1fr; }
+      .kpis { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
     }
   </style>
 </head>
 <body>
   <div id="progress" class="progress"></div>
-  <header class="topbar">
-    <div class="topbar-inner">
-      <div class="brand">RunTech Coach</div>
-      <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">Ready</span></div>
-    </div>
-  </header>
 
-  <main class="wrap">
-    <section class="card hero">
-      <div>
-        <h1>Training Decision Dashboard</h1>
-        <p>
-          This tool syncs your Strava training, computes fitness/fatigue state, then recommends your safest next session.
-          Workflow: connect once, sync, update state cache, then request recommendation.
-        </p>
-      </div>
-      <div class="kpis">
-        <div class="kpi"><div class="label">Readiness</div><div id="kReadiness" class="value skeleton">steady</div></div>
-        <div class="kpi"><div class="label">Form</div><div id="kForm" class="value skeleton">0.0</div></div>
-        <div class="kpi"><div class="label">ACWR</div><div id="kAcwr" class="value skeleton">1.00</div></div>
-        <div class="kpi"><div class="label">Sessions (7d)</div><div id="kSessions" class="value skeleton">0</div></div>
-      </div>
-    </section>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-dot"></span><span>RunTech Coach</span></div>
+      <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">Ready</span></div>
+    </header>
 
     <section class="main">
-      <aside class="stack">
-        <section class="card controls">
-          <h2>One-Click Flow</h2>
-          <label for="apiBase">API base URL</label>
-          <input id="apiBase" value="" placeholder="Auto: current deployment origin" />
-          <label for="daysBack">Sync history (days)</label>
-          <input id="daysBack" type="number" min="1" max="365" value="90" />
+      <section class="card hero">
+        <h1>Smart Training, One Clean Flow</h1>
+        <p>
+          Connect your Strava once, then RunTech syncs activities, updates your training state, and gives today’s recommendation.
+          No manual API URL or user ID needed.
+        </p>
+        <div class="hero-actions">
+          <button data-action id="fullFlowBtn">Connect + Sync + Recommend</button>
+          <button data-action id="refreshBtn" class="secondary">Refresh Dashboard</button>
+        </div>
+        <div class="kpis">
+          <div class="kpi"><div class="label">Readiness</div><div id="kReadiness" class="value skeleton">steady</div></div>
+          <div class="kpi"><div class="label">Form</div><div id="kForm" class="value skeleton">0.0</div></div>
+          <div class="kpi"><div class="label">ACWR</div><div id="kAcwr" class="value skeleton">1.00</div></div>
+          <div class="kpi"><div class="label">Sessions (7d)</div><div id="kSessions" class="value skeleton">0</div></div>
+        </div>
 
-          <div class="btn-grid">
-            <button data-action id="fullFlowBtn">Connect + Sync + Recommend</button>
-            <button data-action id="refreshBtn" class="soft">Refresh Dashboard</button>
-          </div>
+        <div class="recommend-box">
+          <div class="recommend-title">Today Recommendation</div>
+          <div id="recAction" class="recommend-action">Not generated</div>
+          <div id="recMeta" class="recommend-meta">Run the one-click flow to generate your plan.</div>
+        </div>
+        <div id="readinessBadge" class="badge">Readiness: unknown</div>
+        <div id="recReason" class="panel">Reasoning appears here.</div>
+        <div id="narrative" class="panel">Narrative explanation appears here.</div>
+      </section>
 
-          <pre id="apiOut" class="output">Output logs...</pre>
-        </section>
+      <aside class="card">
+        <h2>Coach Notes</h2>
+        <details open>
+          <summary>How recommendation is decided</summary>
+          <p>The engine balances fitness gain vs fatigue and injury risk, then enforces safety constraints like ACWR and taper rules.</p>
+        </details>
+        <details>
+          <summary>What ACWR means</summary>
+          <p>ACWR = 7-day training load divided by 28-day load. A high ratio can indicate a sudden spike in stress.</p>
+        </details>
+        <details>
+          <summary>What Form means</summary>
+          <p>Form is fitness minus fatigue. Positive form often means fresher legs; very negative form suggests caution.</p>
+        </details>
+        <details>
+          <summary>What to do if sync fails</summary>
+          <p>Re-run one-click flow. If auth expired, it will reopen Strava and continue automatically after consent.</p>
+        </details>
 
-        <section class="card explain">
-          <h2>Beginner Guide</h2>
-          <details open><summary>Why this recommendation?</summary><p>It maximizes fitness gain while reducing fatigue and injury risk, using your recent training load and recovery state.</p></details>
-          <details><summary>What is ACWR?</summary><p>ACWR is your last 7 days load divided by last 28 days load. Above ~1.5 means your recent load likely spiked too fast.</p></details>
-          <details><summary>What is Form?</summary><p>Form = Fitness - Fatigue. Positive form means fresher; very negative form means your body may need easier training.</p></details>
-          <details><summary>Why hard sessions can be blocked</summary><p>Hard or moderate can be blocked by high ACWR, fatigue confidence bounds, or race taper constraints.</p></details>
-        </section>
+        <h3 style="margin-top:14px;">Feedback</h3>
+        <div class="feedback">
+          <button data-action class="secondary feedback-btn" data-act="rest">Rest</button>
+          <button data-action class="secondary feedback-btn" data-act="easy">Easy</button>
+          <button data-action class="secondary feedback-btn" data-act="moderate">Moderate</button>
+          <button data-action class="secondary feedback-btn" data-act="hard">Hard</button>
+        </div>
+
+        <pre id="apiOut" class="output">System output...</pre>
       </aside>
+    </section>
 
-      <section class="stack">
-        <section class="card">
-          <h2>Today Recommendation</h2>
-          <div class="recommend">
-            <div class="title">Action</div>
-            <div id="recAction" class="action">Not generated</div>
-            <div id="recMeta" class="meta">Press Get Recommendation after state update.</div>
+    <section class="grid-bottom">
+      <section class="card">
+        <h2>Trends</h2>
+        <div class="chart-grid">
+          <div>
+            <div class="chart-wrap"><canvas id="stateChart"></canvas></div>
+            <div id="stateChartNote" class="chart-note"></div>
           </div>
-          <div id="readinessBadge" class="badge">Readiness: unknown</div>
-          <div id="recReason" class="reason">Reasoning appears here.</div>
-          <div id="narrative" class="narrative">Narrative explanation appears here.</div>
+          <div>
+            <div class="chart-wrap"><canvas id="loadChart"></canvas></div>
+            <div id="loadChartNote" class="chart-note"></div>
+          </div>
+          <div>
+            <div class="chart-wrap"><canvas id="acwrChart"></canvas></div>
+            <div id="acwrChartNote" class="chart-note"></div>
+          </div>
+        </div>
+      </section>
 
-          <h2 style="margin-top:12px;">Feedback (what you actually did)</h2>
-          <div class="feedback">
-            <button data-action class="soft feedback-btn" data-act="rest">Rest</button>
-            <button data-action class="soft feedback-btn" data-act="easy">Easy</button>
-            <button data-action class="soft feedback-btn" data-act="moderate">Moderate</button>
-            <button data-action class="soft feedback-btn" data-act="hard">Hard</button>
-          </div>
-        </section>
-
-        <section class="card">
-          <h2>Trends</h2>
-          <div class="chart-grid">
-            <div>
-              <div class="chart-wrap"><canvas id="stateChart"></canvas></div>
-              <div id="stateChartNote" class="chart-note"></div>
-            </div>
-            <div>
-              <div class="chart-wrap"><canvas id="loadChart"></canvas></div>
-              <div id="loadChartNote" class="chart-note"></div>
-            </div>
-            <div>
-              <div class="chart-wrap"><canvas id="acwrChart"></canvas></div>
-              <div id="acwrChartNote" class="chart-note"></div>
-            </div>
-          </div>
-          <div class="chips" id="activityMix"></div>
-        </section>
+      <section class="card">
+        <h2>Activity Mix</h2>
+        <p class="muted" style="margin:8px 0 0;">Last 7 days by type</p>
+        <div id="activityMix" class="chips"></div>
       </section>
     </section>
   </main>
@@ -385,8 +434,6 @@
       progress: $("progress"),
       statusText: $("statusText"),
       statusDot: $("statusDot"),
-      apiBase: $("apiBase"),
-      daysBack: $("daysBack"),
       apiOut: $("apiOut"),
       kReadiness: $("kReadiness"),
       kForm: $("kForm"),
@@ -403,18 +450,10 @@
       acwrChartNote: $("acwrChartNote"),
     };
 
-    const runtimeBase =
+    const API_BASE =
       (window.location.protocol === "http:" || window.location.protocol === "https:")
-        ? window.location.origin
+        ? window.location.origin.replace(/\/$/, "")
         : "http://localhost:8000";
-    const isDeployedHost = !["localhost", "127.0.0.1"].includes(window.location.hostname);
-    const savedBase = localStorage.getItem("rc_api_base");
-    if (savedBase && !(isDeployedHost && savedBase.includes("localhost"))) {
-      ui.apiBase.value = savedBase;
-    } else {
-      ui.apiBase.value = runtimeBase;
-      localStorage.setItem("rc_api_base", runtimeBase);
-    }
 
     function sessionToken() {
       return localStorage.getItem("rc_session_token") || "";
@@ -430,28 +469,9 @@
       localStorage.removeItem("rc_session_expires_at");
     }
 
-    function apiBase() {
-      const v = (ui.apiBase.value.trim() || runtimeBase).replace(/\/$/, "");
-      localStorage.setItem("rc_api_base", v);
-      return v;
-    }
-
     function setStatus(text, tone = "good") {
       ui.statusText.textContent = text;
       ui.statusDot.className = `dot ${tone === "good" ? "" : tone}`.trim();
-    }
-
-    function applyOAuthSuccess(payload) {
-      if (payload && payload.user_id) {
-        appState.currentUserId = Number(payload.user_id);
-      }
-      if (payload && payload.session_token) {
-        setSessionToken(payload.session_token, payload.session_expires_at);
-      }
-      localStorage.removeItem("rc_oauth_state");
-      ui.apiOut.textContent = JSON.stringify(payload || { ok: true }, null, 2);
-      setStatus("Strava connected. You can sync now.", "good");
-      refreshDashboard().catch(() => {});
     }
 
     function setBusy(on, label = "Working...") {
@@ -473,7 +493,7 @@
         if (appState.progressTimer) clearInterval(appState.progressTimer);
         appState.progressTimer = null;
         ui.progress.style.width = "100%";
-        setTimeout(() => { ui.progress.style.width = "0%"; }, 230);
+        setTimeout(() => { ui.progress.style.width = "0%"; }, 240);
       }
     }
 
@@ -487,17 +507,31 @@
       const headers = new Headers(options.headers || {});
       const token = sessionToken();
       if (token) headers.set("Authorization", `Bearer ${token}`);
-      const response = await fetch(`${apiBase()}${path}`, { ...options, headers });
+      const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
       const raw = await response.text();
       if (!response.ok) {
         let detail = raw;
         try { detail = JSON.parse(raw).detail || raw; } catch (_) {}
-        if (response.status === 401) {
-          clearSessionToken();
-        }
+        if (response.status === 401) clearSessionToken();
         throw new Error(`${response.status}: ${detail}`);
       }
       return raw ? JSON.parse(raw) : {};
+    }
+
+    function applyOAuthSuccess(payload) {
+      if (payload && payload.user_id) {
+        appState.currentUserId = Number(payload.user_id);
+      }
+      if (payload && payload.session_token) {
+        setSessionToken(payload.session_token, payload.session_expires_at);
+      }
+      localStorage.removeItem("rc_oauth_state");
+      ui.apiOut.textContent = JSON.stringify(payload || { ok: true }, null, 2);
+      setStatus("Strava connected.", "good");
+    }
+
+    function destroyChart(chart) {
+      if (chart) chart.destroy();
     }
 
     function renderRecommendation(payload) {
@@ -508,10 +542,6 @@
       ui.recMeta.textContent = `Confidence ${Number(payload.confidence_score || 0).toFixed(2)} | Form ${Number(reason.form || 0).toFixed(1)} | ACWR ${Number(reason.acwr || 0).toFixed(2)}`;
       ui.recReason.textContent = `Blocked actions: ${(reason.blocked_actions || []).join(", ") || "none"}\nConstraint reasons: ${(reason.hard_constraint_reasons || []).join(", ") || "none"}`;
       ui.narrative.textContent = payload.narrative || "No narrative generated.";
-    }
-
-    function destroyChart(chart) {
-      if (chart) chart.destroy();
     }
 
     function renderCharts(dashboard) {
@@ -541,13 +571,13 @@
       const loadData = loadTrend.map((x) => Number(x.value || 0));
 
       ui.stateChartNote.textContent = stateTrend.length <= 1
-        ? "Only one state snapshot available. Run sync + update state on more days to see trend lines."
+        ? "Need more sync days to draw full fitness/fatigue trend."
         : "";
       ui.acwrChartNote.textContent = acwrTrend.length <= 1
-        ? "ACWR trend needs more daily load history. Current value is shown."
+        ? "ACWR trend needs more training history."
         : "";
       ui.loadChartNote.textContent = loadTrend.length <= 1
-        ? "Weekly load builds as more sessions are synced."
+        ? "Weekly load builds after more synced sessions."
         : "";
 
       destroyChart(appState.charts.state);
@@ -562,17 +592,30 @@
         data: {
           labels: stateLabels,
           datasets: [
-            { label: "Fitness", data: fitnessData, borderColor: "#62d9ff", tension: 0.3, pointRadius: statePointRadius },
-            { label: "Fatigue", data: fatigueData, borderColor: "#ff8594", tension: 0.3, pointRadius: statePointRadius },
+            { label: "Fitness", data: fitnessData, borderColor: "#6fd9ff", tension: 0.3, pointRadius: statePointRadius },
+            { label: "Fatigue", data: fatigueData, borderColor: "#ff95a5", tension: 0.3, pointRadius: statePointRadius },
           ],
         },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: "#dcecff" } } }, scales: { x: { ticks: { color: "#96abc7" } }, y: { ticks: { color: "#96abc7" } } } },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: "#dcecff" } } },
+          scales: { x: { ticks: { color: "#96abc7" } }, y: { ticks: { color: "#96abc7" } } },
+        },
       });
 
       appState.charts.load = new Chart($("loadChart"), {
         type: "bar",
-        data: { labels: loadLabels, datasets: [{ label: "Weekly Load", data: loadData, backgroundColor: "rgba(91,243,176,0.6)", borderColor: "#5bf3b0", borderWidth: 1 }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: "#dcecff" } } }, scales: { x: { ticks: { color: "#96abc7" } }, y: { ticks: { color: "#96abc7" } } } },
+        data: {
+          labels: loadLabels,
+          datasets: [{ label: "Weekly Load", data: loadData, backgroundColor: "rgba(127,240,199,0.6)", borderColor: "#7ff0c7", borderWidth: 1 }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: "#dcecff" } } },
+          scales: { x: { ticks: { color: "#96abc7" } }, y: { ticks: { color: "#96abc7" } } },
+        },
       });
 
       appState.charts.acwr = new Chart($("acwrChart"), {
@@ -580,11 +623,16 @@
         data: {
           labels: acwrLabels,
           datasets: [
-            { label: "ACWR", data: acwrData, borderColor: "#ffd27a", backgroundColor: "rgba(255,210,122,0.2)", fill: true, tension: 0.28, pointRadius: acwrPointRadius },
-            { label: "Risk 1.5", data: acwrLabels.map(() => 1.5), borderColor: "rgba(255,133,148,0.9)", borderDash: [6, 5], pointRadius: 0 },
+            { label: "ACWR", data: acwrData, borderColor: "#ffd68a", backgroundColor: "rgba(255,214,138,0.2)", fill: true, tension: 0.28, pointRadius: acwrPointRadius },
+            { label: "Risk 1.5", data: acwrLabels.map(() => 1.5), borderColor: "rgba(255,149,165,0.9)", borderDash: [6, 5], pointRadius: 0 },
           ],
         },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: "#dcecff" } } }, scales: { x: { ticks: { color: "#96abc7" } }, y: { min: 0, ticks: { color: "#96abc7" } } } },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: "#dcecff" } } },
+          scales: { x: { ticks: { color: "#96abc7" } }, y: { min: 0, ticks: { color: "#96abc7" } } },
+        },
       });
     }
 
@@ -602,19 +650,18 @@
       ui.readinessBadge.className = `badge ${readiness}`;
       ui.readinessBadge.textContent = `Readiness: ${readiness}`;
 
-      const mix = weekly.activity_mix || {};
       ui.activityMix.innerHTML = "";
-      const entries = Object.entries(mix);
-      if (!entries.length) {
-        const empty = document.createElement("span");
-        empty.className = "chip";
-        empty.textContent = "No activities in last 7 days";
-        ui.activityMix.appendChild(empty);
+      const mixEntries = Object.entries(weekly.activity_mix || {});
+      if (!mixEntries.length) {
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = "No activity yet";
+        ui.activityMix.appendChild(chip);
       } else {
-        for (const [k, v] of entries) {
+        for (const [type, count] of mixEntries) {
           const chip = document.createElement("span");
           chip.className = "chip";
-          chip.textContent = `${k}: ${v}`;
+          chip.textContent = `${type}: ${count}`;
           ui.activityMix.appendChild(chip);
         }
       }
@@ -645,22 +692,12 @@
       }
     }
 
-    async function refreshDashboard() {
-      if (!appState.currentUserId) {
-        throw new Error("Not connected yet. Click Connect + Sync + Recommend first.");
-      }
-      const data = await request(`/dashboard/${appState.currentUserId}`);
-      ui.apiOut.textContent = JSON.stringify(data, null, 2);
-      renderDashboard(data);
-      setStatus("Dashboard updated", "good");
-    }
-
     function waitForOAuthCompletion(timeoutMs = 180000) {
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           appState.oauthResolve = null;
           appState.oauthReject = null;
-          reject(new Error("Authorization timed out. Please retry and complete Strava consent."));
+          reject(new Error("Authorization timed out. Retry one-click flow."));
         }, timeoutMs);
         appState.oauthResolve = (payload) => {
           clearTimeout(timer);
@@ -677,37 +714,48 @@
       });
     }
 
-    async function connectIfNeeded(popup) {
+    async function connectIfNeeded(popup, allowInteractiveAuth = true) {
       if (sessionToken()) {
         try {
           const me = await request("/me");
           if (me && me.id) {
             appState.currentUserId = Number(me.id);
-            return Number(me.id);
+            return appState.currentUserId;
           }
         } catch (_) {
           clearSessionToken();
         }
       }
 
-      const authData = await request("/auth/url");
-      if (!authData.url) {
-        throw new Error("Auth URL not returned by backend.");
+      if (!allowInteractiveAuth) {
+        throw new Error("Connect your Strava account first.");
       }
+
+      const authData = await request("/auth/url");
+      if (!authData.url) throw new Error("Auth URL not returned by backend.");
       if (authData.state) localStorage.setItem("rc_oauth_state", authData.state);
+
       if (!popup) {
         window.location.href = authData.url;
-        throw new Error("Browser blocked popup. Please allow popups and retry.");
+        throw new Error("Popup blocked. Allow popups and retry.");
       }
       popup.location.href = authData.url;
-      setStatus("Complete Strava authorization in the popup...", "warn");
+      setStatus("Complete Strava authorization in popup...", "warn");
       const authResult = await waitForOAuthCompletion();
       applyOAuthSuccess(authResult || {});
       return Number((authResult || {}).user_id || appState.currentUserId || 1);
     }
 
+    async function refreshDashboard() {
+      const activeUserId = await connectIfNeeded(null, false);
+      const data = await request(`/dashboard/${activeUserId}`);
+      ui.apiOut.textContent = JSON.stringify(data, null, 2);
+      renderDashboard(data);
+      setStatus("Dashboard refreshed.", "good");
+    }
+
     async function runFullFlow(popup) {
-      const activeUserId = await connectIfNeeded(popup);
+      const activeUserId = await connectIfNeeded(popup, true);
 
       const syncPayload = await request("/sync", {
         method: "POST",
@@ -722,9 +770,10 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: "kalman" }),
       });
+
       renderRecommendation(recPayload);
       await refreshDashboard();
-      setStatus("Full flow complete: connected, synced, and recommended.", "good");
+      setStatus("Flow complete. Recommendation ready.", "good");
     }
 
     window.addEventListener("message", (event) => {
@@ -749,9 +798,9 @@
 
     for (const btn of $$(".feedback-btn")) {
       btn.addEventListener("click", () => run("Submitting feedback...", async () => {
-        const action = btn.dataset.act;
+        const activeUserId = await connectIfNeeded(null, true);
         const today = new Date().toISOString().slice(0, 10);
-        const activeUserId = await connectIfNeeded(null);
+        const action = btn.dataset.act;
         const payload = await request("/feedback", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
