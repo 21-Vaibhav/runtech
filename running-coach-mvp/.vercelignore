@@ -5,6 +5,12 @@ tests
 *.db
 *.sqlite
 *.sqlite3
+*.db-wal
+*.db-shm
 *.pyc
 .git
-
+.mypy_cache
+.ruff_cache
+.cache
+dist
+build

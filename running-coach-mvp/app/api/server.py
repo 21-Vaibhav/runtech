@@ -137,8 +137,9 @@ def get_narrator() -> LocalNarrator:
 @app.on_event("startup")
 def startup() -> None:
     init_db()
-    narrator = get_narrator()
-    narrator.preload()
+    if settings.narrative_mode.lower() == "llm":
+        narrator = get_narrator()
+        narrator.preload()
     LOGGER.info("startup complete")
 
 
