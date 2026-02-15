@@ -36,9 +36,9 @@ from app.data.database import (
 )
 from app.data.pipeline import sync_activities
 from app.data.strava_client import StravaClient
+from app.decision.messages import readiness_color, recommendation_message, weekly_summary_text
 from app.decision.optimizer import RecommendationResult, recommend_action
 from app.feedback.tracker import compute_stats, log_feedback
-from app.llm.narrator import LocalNarrator
 from app.models.state_estimator import update_state_estimates
 
 LOGGER = logging.getLogger(__name__)
@@ -108,7 +108,6 @@ class RecommendationCache:
             self._store.popitem(last=False)
 
 
-_NARRATOR: LocalNarrator | None = None
 _REC_CACHE = RecommendationCache(ttl_seconds=6 * 60 * 60)
 
 
@@ -132,13 +131,6 @@ def get_db() -> Session:
         raise
     finally:
         db.close()
-
-
-def get_narrator() -> LocalNarrator:
-    global _NARRATOR
-    if _NARRATOR is None:
-        _NARRATOR = LocalNarrator()
-    return _NARRATOR
 
 
 def _token_secret() -> str:
@@ -208,8 +200,6 @@ def startup() -> None:
         init_db()
     except Exception as exc:
         LOGGER.exception("Database initialization failed during startup: %s", exc)
-    narrator = get_narrator()
-    narrator.preload()
     LOGGER.info("startup complete")
 
 
@@ -455,23 +445,25 @@ def state_update(user_id: int, auth_user_id: int = Depends(require_session_user)
 
 def _build_recommendation_payload(
     result: RecommendationResult,
-    narrator: LocalNarrator,
     state_cache: UserStateCache,
 ) -> dict[str, Any]:
-    signals = {
-        "fitness_estimate": (state_cache.fitness, state_cache.fitness_ci_low, state_cache.fitness_ci_high),
-        "fatigue_estimate": (state_cache.fatigue, state_cache.fatigue_ci_low, state_cache.fatigue_ci_high),
-        "form": result.reasoning_dict.get("form", 0.0),
-        "acwr": result.reasoning_dict.get("acwr", 1.0),
-        "recommended_action": result.recommended_action,
-    }
-    explanation = narrator.explain_fast(signals)
+    form = float(result.reasoning_dict.get("form", 0.0))
+    acwr_value = float(result.reasoning_dict.get("acwr", 1.0))
+    explanation = recommendation_message(form, acwr_value, result.recommended_action)
+    readiness = _readiness_label(
+        form=form,
+        acwr_value=acwr_value,
+        confidence=result.confidence_score,
+    )
 
     return {
         "recommended_action": result.recommended_action,
         "confidence_score": result.confidence_score,
         "reasoning_dict": result.reasoning_dict,
         "narrative": explanation,
+        "action_message": explanation,
+        "readiness": readiness,
+        "readiness_color": readiness_color(readiness),
     }
 
 
@@ -481,7 +473,6 @@ async def recommend(
     payload: RecommendRequest,
     auth_user_id: int = Depends(require_session_user),
     db: Session = Depends(get_db),
-    narrator: LocalNarrator = Depends(get_narrator),
 ) -> dict[str, Any]:
     """Generate recommendation from cached state and cache result for 6h."""
     _ensure_same_user(auth_user_id, user_id)
@@ -498,7 +489,7 @@ async def recommend(
 
     # recommend_action is now quick because it reads only cached state.
     result = await run_in_threadpool(recommend_action, db, user_id)
-    response = await run_in_threadpool(_build_recommendation_payload, result, narrator, state_cache)
+    response = await run_in_threadpool(_build_recommendation_payload, result, state_cache)
 
     _REC_CACHE.set(user_id=user_id, day=date.today(), payload=response)
     LOGGER.info("/recommend user=%s cache_hit=false elapsed=%.3fs", user_id, time.perf_counter() - t0)
@@ -541,7 +532,6 @@ def history(
     days: int = 30,
     auth_user_id: int = Depends(require_session_user),
     db: Session = Depends(get_db),
-    narrator: LocalNarrator = Depends(get_narrator),
 ) -> dict[str, Any]:
     _ensure_same_user(auth_user_id, user_id)
     since = datetime.utcnow() - timedelta(days=days)
@@ -564,18 +554,12 @@ def history(
         for row in rows
     ]
 
-    weekly_dict = {
-        "sessions": len([r for r in rows if r.start_date >= datetime.utcnow() - timedelta(days=7)]),
-        "avg_quality": sum(r.data_quality_score for r in rows) / len(rows) if rows else 0.0,
-        "acwr": 1.0,
-    }
-    weekly = narrator.explain_fast(
-        {
-            "recommended_action": "easy",
-            "form": 0.0,
-            "acwr": weekly_dict["acwr"],
-        }
-    )
+    week_rows = [r for r in rows if r.start_date >= datetime.utcnow() - timedelta(days=7)]
+    activity_mix: dict[str, int] = {}
+    for row in week_rows:
+        activity_mix[row.type] = activity_mix.get(row.type, 0) + 1
+    total_time_min = sum(r.moving_time_s for r in week_rows) / 60.0
+    weekly = weekly_summary_text(len(week_rows), total_time_min, activity_mix)
 
     return {"activities": items, "weekly_summary": weekly}
 
@@ -659,6 +643,7 @@ def dashboard(user_id: int, auth_user_id: int = Depends(require_session_user), d
             "total_distance_km": round(total_distance_km, 2),
             "activity_mix": by_type,
             "streak_days": streak,
+            "summary_text": weekly_summary_text(len(activities), total_time_min, by_type),
         },
         "state": (
             {

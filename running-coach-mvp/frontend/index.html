@@ -143,7 +143,7 @@
       font-weight: 700;
       color: #14181f;
       cursor: pointer;
-      background: linear-gradient(90deg, var(--blue), #a2efff);
+      background: linear-gradient(90deg, var(--blue), #b7bec9);
     }
     button.secondary {
       color: #20252e;
@@ -196,7 +196,7 @@
     }
     .recommend-meta {
       margin-top: 6px;
-      color: #d8e9ff;
+      color: #d6dae1;
       font-size: 0.9rem;
     }
 
@@ -206,20 +206,20 @@
       border: 1px solid #4f5f74;
       border-radius: 999px;
       padding: 4px 10px;
-      color: #c7e4ff;
+      color: #d7dbe2;
       background: rgba(184, 190, 201, 0.12);
       font-size: 0.8rem;
     }
-    .badge.ready { border-color: #7b838f; color: #d7dde6; background: rgba(164, 171, 181, 0.18); }
-    .badge.steady { border-color: #676f7b; color: #c8cfd9; background: rgba(140, 148, 160, 0.18); }
-    .badge.caution { border-color: #535a66; color: #b8bec8; background: rgba(116, 124, 136, 0.18); }
+    .badge.green { border-color: #1f8f5a; color: #baf1d9; background: rgba(31, 143, 90, 0.16); }
+    .badge.yellow { border-color: #9a7a1f; color: #ffe4ad; background: rgba(154, 122, 31, 0.16); }
+    .badge.red { border-color: #a2384f; color: #ffc5ce; background: rgba(162, 56, 79, 0.16); }
 
     .panel {
       margin-top: 10px;
       border: 1px solid #314d6f;
       border-radius: 10px;
       background: #0b1423;
-      color: #d6e8ff;
+      color: #d7dce3;
       padding: 10px;
       font-size: 0.83rem;
       line-height: 1.45;
@@ -257,7 +257,7 @@
       border-radius: 999px;
       padding: 4px 8px;
       font-size: 0.76rem;
-      color: #c5e4ff;
+      color: #d5dae2;
       background: rgba(150, 158, 171, 0.12);
     }
 
@@ -273,7 +273,7 @@
       border: 1px solid #334f70;
       border-radius: 10px;
       background: #0b1423;
-      color: #d7e9ff;
+      color: #d8dde4;
       padding: 10px;
       font-size: 0.78rem;
       max-height: 260px;
@@ -289,7 +289,7 @@
       padding: 8px 10px;
       margin-top: 8px;
     }
-    summary { cursor: pointer; font-weight: 700; color: #c8e3ff; }
+    summary { cursor: pointer; font-weight: 700; color: #d6dae2; }
     details p {
       margin: 8px 0 0;
       color: var(--muted);
@@ -341,9 +341,9 @@
           <button data-action id="refreshBtn" class="secondary">Refresh Dashboard</button>
         </div>
         <div class="kpis">
-          <div class="kpi"><div class="label">Readiness</div><div id="kReadiness" class="value skeleton">steady</div></div>
-          <div class="kpi"><div class="label">Form</div><div id="kForm" class="value skeleton">0.0</div></div>
-          <div class="kpi"><div class="label">ACWR</div><div id="kAcwr" class="value skeleton">1.00</div></div>
+          <div class="kpi"><div class="label" title="Readiness combines form, ACWR, and confidence.">Readiness</div><div id="kReadiness" class="value skeleton">steady</div></div>
+          <div class="kpi"><div class="label" title="Form = fitness minus fatigue. Higher can indicate fresher legs.">Form</div><div id="kForm" class="value skeleton">0.0</div></div>
+          <div class="kpi"><div class="label" title="ACWR is recent load vs baseline load. Higher values can mean spike risk.">ACWR</div><div id="kAcwr" class="value skeleton">1.00</div></div>
           <div class="kpi"><div class="label">Sessions (7d)</div><div id="kSessions" class="value skeleton">0</div></div>
         </div>
 
@@ -352,7 +352,7 @@
           <div id="recAction" class="recommend-action">Not generated</div>
           <div id="recMeta" class="recommend-meta">Run the one-click flow to generate your plan.</div>
         </div>
-        <div id="readinessBadge" class="badge">Readiness: unknown</div>
+        <div id="readinessBadge" class="badge yellow">Readiness: unknown</div>
         <div id="recReason" class="panel">Reasoning appears here.</div>
         <div id="narrative" class="panel">Narrative explanation appears here.</div>
       </section>
@@ -384,7 +384,7 @@
           <button data-action class="secondary feedback-btn" data-act="hard">Hard</button>
         </div>
 
-        <pre id="apiOut" class="output">System output...</pre>
+        <pre id="apiOut" class="output">Activity log...</pre>
       </aside>
     </section>
 
@@ -409,6 +409,7 @@
 
       <section class="card">
         <h2>Activity Mix</h2>
+        <p id="weeklySummary" class="muted" style="margin:8px 0 0;">Weekly summary appears here.</p>
         <p class="muted" style="margin:8px 0 0;">Last 7 days by type</p>
         <div id="activityMix" class="chips"></div>
       </section>
@@ -444,6 +445,7 @@
       readinessBadge: $("readinessBadge"),
       recReason: $("recReason"),
       narrative: $("narrative"),
+      weeklySummary: $("weeklySummary"),
       activityMix: $("activityMix"),
       stateChartNote: $("stateChartNote"),
       loadChartNote: $("loadChartNote"),
@@ -472,6 +474,17 @@
     function setStatus(text, tone = "good") {
       ui.statusText.textContent = text;
       ui.statusDot.className = `dot ${tone === "good" ? "" : tone}`.trim();
+    }
+
+    function appendLog(line) {
+      const stamp = new Date().toLocaleTimeString();
+      ui.apiOut.textContent = `[${stamp}] ${line}\n` + ui.apiOut.textContent;
+    }
+
+    function badgeColorFromReadiness(readiness) {
+      if (readiness === "ready") return "green";
+      if (readiness === "caution") return "red";
+      return "yellow";
     }
 
     function setBusy(on, label = "Working...") {
@@ -526,7 +539,7 @@
         setSessionToken(payload.session_token, payload.session_expires_at);
       }
       localStorage.removeItem("rc_oauth_state");
-      ui.apiOut.textContent = JSON.stringify(payload || { ok: true }, null, 2);
+      appendLog("Strava account connected.");
       setStatus("Strava connected.", "good");
     }
 
@@ -538,10 +551,14 @@
       if (!payload || !payload.recommended_action) return;
       appState.latestRecommendation = payload;
       const reason = payload.reasoning_dict || {};
-      ui.recAction.textContent = String(payload.recommended_action).toUpperCase();
-      ui.recMeta.textContent = `Confidence ${Number(payload.confidence_score || 0).toFixed(2)} | Form ${Number(reason.form || 0).toFixed(1)} | ACWR ${Number(reason.acwr || 0).toFixed(2)}`;
+      ui.recAction.textContent = payload.action_message || String(payload.recommended_action).toUpperCase();
+      ui.recMeta.textContent = `Action: ${String(payload.recommended_action).toUpperCase()} | Confidence ${Number(payload.confidence_score || 0).toFixed(2)} | Form ${Number(reason.form || 0).toFixed(1)} | ACWR ${Number(reason.acwr || 0).toFixed(2)}`;
       ui.recReason.textContent = `Blocked actions: ${(reason.blocked_actions || []).join(", ") || "none"}\nConstraint reasons: ${(reason.hard_constraint_reasons || []).join(", ") || "none"}`;
       ui.narrative.textContent = payload.narrative || "No narrative generated.";
+      const readiness = payload.readiness || "steady";
+      const color = payload.readiness_color || badgeColorFromReadiness(readiness);
+      ui.readinessBadge.className = `badge ${color}`;
+      ui.readinessBadge.textContent = `Readiness: ${readiness}`;
     }
 
     function renderCharts(dashboard) {
@@ -600,7 +617,10 @@
           responsive: true,
           maintainAspectRatio: false,
           plugins: { legend: { labels: { color: "#dcecff" } } },
-          scales: { x: { ticks: { color: "#96abc7" } }, y: { ticks: { color: "#96abc7" } } },
+          scales: {
+            x: { ticks: { color: "#96abc7" }, title: { display: true, text: "Date", color: "#96abc7" } },
+            y: { ticks: { color: "#96abc7" }, title: { display: true, text: "Score", color: "#96abc7" } },
+          },
         },
       });
 
@@ -614,7 +634,10 @@
           responsive: true,
           maintainAspectRatio: false,
           plugins: { legend: { labels: { color: "#dcecff" } } },
-          scales: { x: { ticks: { color: "#96abc7" } }, y: { ticks: { color: "#96abc7" } } },
+          scales: {
+            x: { ticks: { color: "#96abc7" }, title: { display: true, text: "Week", color: "#96abc7" } },
+            y: { ticks: { color: "#96abc7" }, title: { display: true, text: "Session Load", color: "#96abc7" } },
+          },
         },
       });
 
@@ -631,7 +654,10 @@
           responsive: true,
           maintainAspectRatio: false,
           plugins: { legend: { labels: { color: "#dcecff" } } },
-          scales: { x: { ticks: { color: "#96abc7" } }, y: { min: 0, ticks: { color: "#96abc7" } } },
+          scales: {
+            x: { ticks: { color: "#96abc7" }, title: { display: true, text: "Date", color: "#96abc7" } },
+            y: { min: 0, ticks: { color: "#96abc7" }, title: { display: true, text: "ACWR", color: "#96abc7" } },
+          },
         },
       });
     }
@@ -647,8 +673,9 @@
       ui.kAcwr.textContent = Number(data.acwr || 0).toFixed(2);
       ui.kSessions.textContent = String(weekly.sessions || 0);
 
-      ui.readinessBadge.className = `badge ${readiness}`;
+      ui.readinessBadge.className = `badge ${badgeColorFromReadiness(readiness)}`;
       ui.readinessBadge.textContent = `Readiness: ${readiness}`;
+      ui.weeklySummary.textContent = weekly.summary_text || `This week: ${weekly.sessions || 0} sessions, ${Math.round(weekly.total_time_min || 0)} min total.`;
 
       ui.activityMix.innerHTML = "";
       const mixEntries = Object.entries(weekly.activity_mix || {});
@@ -749,7 +776,7 @@
     async function refreshDashboard() {
       const activeUserId = await connectIfNeeded(null, false);
       const data = await request(`/dashboard/${activeUserId}`);
-      ui.apiOut.textContent = JSON.stringify(data, null, 2);
+      appendLog("Dashboard refreshed.");
       renderDashboard(data);
       setStatus("Dashboard refreshed.", "good");
     }
@@ -762,7 +789,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: activeUserId, days_back: 90 }),
       });
-      ui.apiOut.textContent = JSON.stringify(syncPayload, null, 2);
+      appendLog(`Sync complete: ${syncPayload.synced_activities || 0} activities.`);
 
       await request(`/state/update/${activeUserId}`, { method: "POST" });
       const recPayload = await request(`/recommend/${activeUserId}`, {
@@ -801,7 +828,7 @@
         const activeUserId = await connectIfNeeded(null, true);
         const today = new Date().toISOString().slice(0, 10);
         const action = btn.dataset.act;
-        const payload = await request("/feedback", {
+      const payload = await request("/feedback", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -811,7 +838,7 @@
             observed_outcome: {},
           }),
         });
-        ui.apiOut.textContent = JSON.stringify(payload, null, 2);
+        appendLog(`Feedback recorded: ${action}.`);
         setStatus(`Feedback logged: ${action}`, "good");
       }));
     }
