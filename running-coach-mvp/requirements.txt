@@ -12,3 +12,4 @@ pytest
 click
 python-dotenv
 httpx
+psycopg[binary]
