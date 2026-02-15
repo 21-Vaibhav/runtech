@@ -6,8 +6,6 @@ numpy
 scipy
 pandas
 filterpy
-transformers
-torch
 pytest
 click
 python-dotenv

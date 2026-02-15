@@ -58,7 +58,7 @@ running-coach-mvp/
   - race taper constraints
   - polarized 80/20 check
 - Recommendation API cache (6h TTL).
-- Local narrator (`phi-3-mini-4k-instruct`) loaded once at startup; deterministic fallback.
+- Deterministic rule-based narrator (serverless-safe, no model downloads).
 - Responsive dashboard with charts (fitness/fatigue, weekly load, ACWR).
 
 ## Metrics and Equations

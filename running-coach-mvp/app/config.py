@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
+from sqlalchemy.exc import ArgumentError
+from sqlalchemy.engine.url import make_url
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ENV_PATH = PROJECT_ROOT / ".env"
@@ -27,7 +29,6 @@ class Settings:
         strava_client_secret: Strava OAuth client secret.
         strava_redirect_uri: OAuth callback URI.
         database_url: SQLAlchemy database URL.
-        llm_model: HuggingFace model id.
         fitness_decay_days: Fitness time constant.
         fatigue_decay_days: Fatigue time constant.
         acwr_acute_days: ACWR acute window in days.
@@ -40,8 +41,6 @@ class Settings:
     strava_client_secret: str = os.getenv("STRAVA_CLIENT_SECRET", "")
     strava_redirect_uri: str = os.getenv("STRAVA_REDIRECT_URI", "http://localhost:8000/auth/callback")
     database_url: str = os.getenv("DATABASE_URL", _default_database_url())
-    llm_model: str = os.getenv("LLM_MODEL", "microsoft/phi-3-mini-4k-instruct")
-    narrative_mode: str = os.getenv("NARRATIVE_MODE", "fast")
     fitness_decay_days: int = int(os.getenv("FITNESS_DECAY_DAYS", "42"))
     fatigue_decay_days: int = int(os.getenv("FATIGUE_DECAY_DAYS", "7"))
     acwr_acute_days: int = int(os.getenv("ACWR_ACUTE_DAYS", "7"))
@@ -53,6 +52,11 @@ class Settings:
         """Normalize relative SQLite paths so DB is stable across launch directories."""
 
         value = self.database_url
+        try:
+            make_url(value)
+        except ArgumentError:
+            object.__setattr__(self, "database_url", _default_database_url())
+            value = self.database_url
         if not value.startswith("sqlite:///"):
             return
         path_part = value.replace("sqlite:///", "", 1)

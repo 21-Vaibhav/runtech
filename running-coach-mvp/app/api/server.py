@@ -137,9 +137,8 @@ def get_narrator() -> LocalNarrator:
 @app.on_event("startup")
 def startup() -> None:
     init_db()
-    if settings.narrative_mode.lower() == "llm":
-        narrator = get_narrator()
-        narrator.preload()
+    narrator = get_narrator()
+    narrator.preload()
     LOGGER.info("startup complete")
 
 
@@ -306,10 +305,7 @@ def _build_recommendation_payload(
         "acwr": result.reasoning_dict.get("acwr", 1.0),
         "recommended_action": result.recommended_action,
     }
-    if settings.narrative_mode.lower() == "fast":
-        explanation = narrator.explain_fast(signals)
-    else:
-        explanation = narrator.explain(signals)
+    explanation = narrator.explain_fast(signals)
 
     return {
         "recommended_action": result.recommended_action,
@@ -404,8 +400,6 @@ def history(user_id: int, days: int = 30, db: Session = Depends(get_db), narrato
             "acwr": weekly_dict["acwr"],
         }
     )
-    if settings.narrative_mode.lower() == "llm":
-        weekly = narrator.weekly_summary(weekly_dict)
 
     return {"activities": items, "weekly_summary": weekly}
 
