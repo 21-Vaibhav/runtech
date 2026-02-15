@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import logging
+from threading import Lock
 from typing import Any
-
-from transformers import pipeline
 
 from app.config import settings
 
@@ -15,17 +14,47 @@ LOGGER = logging.getLogger(__name__)
 class LocalNarrator:
     """Wrapper around local HuggingFace model with rule-based fallback."""
 
+    _shared_generator = None
+    _init_attempted = False
+    _lock = Lock()
+
     def __init__(self) -> None:
         self._generator = None
-        try:
-            # Do not use device_map="auto" to avoid hard dependency on accelerate.
-            # The narrator is optional and must never break API behavior.
-            self._generator = pipeline(
-                "text-generation",
-                model=settings.llm_model,
-            )
-        except Exception as exc:
-            LOGGER.warning("Could not initialize local model; fallback will be used: %s", exc)
+
+    def _ensure_generator(self) -> None:
+        """Lazily initialize and share one generator per process."""
+
+        if self._generator is not None:
+            return
+        if LocalNarrator._shared_generator is not None:
+            self._generator = LocalNarrator._shared_generator
+            return
+        if not settings.llm_model or LocalNarrator._init_attempted:
+            return
+
+        with LocalNarrator._lock:
+            if LocalNarrator._shared_generator is not None:
+                self._generator = LocalNarrator._shared_generator
+                return
+            if LocalNarrator._init_attempted:
+                return
+            LocalNarrator._init_attempted = True
+            try:
+                # Import lazily so startup does not eagerly pull model assets.
+                from transformers import pipeline
+
+                self._generator = pipeline(
+                    "text-generation",
+                    model=settings.llm_model,
+                )
+                LocalNarrator._shared_generator = self._generator
+            except Exception as exc:
+                LOGGER.warning("Could not initialize local model; fallback will be used: %s", exc)
+
+    def preload(self) -> None:
+        """Force model load once during server startup."""
+
+        self._ensure_generator()
 
     def explain(self, signals: dict[str, Any]) -> str:
         """Generate a short explanation from structured signals.
@@ -37,6 +66,7 @@ class LocalNarrator:
             str: 2-3 sentence narrative.
         """
 
+        self._ensure_generator()
         if self._generator is None:
             return self._fallback(signals)
 
@@ -55,6 +85,11 @@ class LocalNarrator:
             LOGGER.warning("LLM generation failed; fallback used: %s", exc)
             return self._fallback(signals)
 
+    def explain_fast(self, signals: dict[str, Any]) -> str:
+        """Return deterministic narrative immediately without model inference."""
+
+        return self._fallback(signals)
+
     def weekly_summary(self, structured_week: dict[str, Any]) -> str:
         """Generate weekly recap narrative.
 
@@ -65,6 +100,7 @@ class LocalNarrator:
             str: Summary text.
         """
 
+        self._ensure_generator()
         if self._generator is None:
             return (
                 f"This week included {structured_week.get('sessions', 0)} sessions with ACWR "

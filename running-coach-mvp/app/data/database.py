@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import date, datetime
 from typing import Any, Generator
 
-from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Integer, String, Text, create_engine
+from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 from app.config import settings
@@ -18,6 +18,20 @@ class Base(DeclarativeBase):
 
 engine = create_engine(settings.database_url, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+
+@event.listens_for(engine, "connect")
+def _set_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
+    """Enable SQLite pragmas for better concurrency/performance."""
+
+    if engine.url.get_backend_name() != "sqlite":
+        return
+
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL;")
+    cursor.execute("PRAGMA synchronous=NORMAL;")
+    cursor.execute("PRAGMA temp_store=MEMORY;")
+    cursor.close()
 
 
 class User(Base):
@@ -55,6 +69,11 @@ class Activity(Base):
     data_quality_score: Mapped[float] = mapped_column(Float, default=1.0)
     data_quality_flags: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
+    __table_args__ = (
+        Index("ix_activities_user_start", "user_id", "start_date"),
+        Index("ix_activities_user_type_start", "user_id", "type", "start_date"),
+    )
+
 
 class ActivityStream(Base):
     """Per-activity time-series streams."""
@@ -82,6 +101,10 @@ class ComputedMetric(Base):
     metric_value: Mapped[float] = mapped_column(Float)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
+    __table_args__ = (
+        Index("ix_metrics_user_name_date", "user_id", "metric_name", "metric_date"),
+    )
+
 
 class StateEstimate(Base):
     """Daily model state for both model families."""
@@ -100,6 +123,29 @@ class StateEstimate(Base):
     fatigue_ci_low: Mapped[float] = mapped_column(Float)
     fatigue_ci_high: Mapped[float] = mapped_column(Float)
 
+    __table_args__ = (
+        Index("ix_state_user_model_date", "user_id", "model_name", "estimate_date"),
+    )
+
+
+class UserStateCache(Base):
+    """Latest per-user state snapshot used by fast recommendation API."""
+
+    __tablename__ = "user_state_cache"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    model_name: Mapped[str] = mapped_column(String(32), default="kalman")
+    fitness: Mapped[float] = mapped_column(Float)
+    fatigue: Mapped[float] = mapped_column(Float)
+    form: Mapped[float] = mapped_column(Float)
+    fitness_ci_low: Mapped[float] = mapped_column(Float)
+    fitness_ci_high: Mapped[float] = mapped_column(Float)
+    fatigue_ci_low: Mapped[float] = mapped_column(Float)
+    fatigue_ci_high: Mapped[float] = mapped_column(Float)
+    acwr: Mapped[float] = mapped_column(Float, default=1.0)
+
 
 class Recommendation(Base):
     """Daily recommendation outputs and confidence."""
@@ -112,6 +158,10 @@ class Recommendation(Base):
     recommended_action: Mapped[str] = mapped_column(String(16))
     confidence_score: Mapped[float] = mapped_column(Float)
     reasoning_dict: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        Index("ix_recommend_user_date", "user_id", "recommendation_date"),
+    )
 
 
 class Race(Base):
@@ -137,6 +187,10 @@ class CalibrationLog(Base):
     recommended_action: Mapped[str] = mapped_column(String(16))
     actual_action: Mapped[str] = mapped_column(String(16))
     observed_outcome: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        Index("ix_calibration_user_date", "user_id", "log_date"),
+    )
 
 
 def init_db() -> None:

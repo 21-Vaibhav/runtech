@@ -9,7 +9,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.data.database import ComputedMetric, Race, Recommendation, StateEstimate
+from app.data.database import Race, Recommendation, StateEstimate, UserStateCache
 from app.models.metrics import detect_periodization_phase, polarized_distribution
 
 ACTIONS = ["rest", "easy", "moderate", "hard"]
@@ -31,20 +31,31 @@ class RecommendationResult:
     reasoning_dict: dict
 
 
-def _latest_acwr(db: Session, user_id: int) -> float:
-    row = db.scalar(
-        select(ComputedMetric)
-        .where(ComputedMetric.user_id == user_id, ComputedMetric.metric_name == "acwr")
-        .order_by(ComputedMetric.metric_date.desc())
-    )
-    return row.metric_value if row else 1.0
+def _latest_state_cache(db: Session, user_id: int) -> UserStateCache | None:
+    cache = db.scalar(select(UserStateCache).where(UserStateCache.user_id == user_id))
+    if cache is not None:
+        return cache
 
-
-def _latest_state(db: Session, user_id: int, model_name: str = "kalman") -> StateEstimate | None:
-    return db.scalar(
+    # Backward-compatible fallback for older records/tests that only have state_estimates.
+    state = db.scalar(
         select(StateEstimate)
-        .where(StateEstimate.user_id == user_id, StateEstimate.model_name == model_name)
+        .where(StateEstimate.user_id == user_id, StateEstimate.model_name == "kalman")
         .order_by(StateEstimate.estimate_date.desc())
+    )
+    if state is None:
+        return None
+
+    return UserStateCache(
+        user_id=user_id,
+        model_name="kalman",
+        fitness=state.fitness,
+        fatigue=state.fatigue,
+        form=state.form,
+        fitness_ci_low=state.fitness_ci_low,
+        fitness_ci_high=state.fitness_ci_high,
+        fatigue_ci_low=state.fatigue_ci_low,
+        fatigue_ci_high=state.fatigue_ci_high,
+        acwr=1.0,
     )
 
 
@@ -65,16 +76,23 @@ def recommend_action(db: Session, user_id: int, today: date | None = None) -> Re
         user_id: User id.
         today: Optional recommendation date.
 
+    Hard constraints implemented:
+        1) Block hard if fatigue CI upper exceeds threshold.
+        2) Block hard/moderate after a hard/moderate previous day.
+        3) Max hard sessions per week.
+        4) 14-day taper and no hard/moderate in final 7 days pre-race.
+        5) Block hard/moderate when ACWR > injury threshold.
+
     Returns:
         RecommendationResult: Action and confidence with reasoning.
     """
 
     today = today or date.today()
-    state = _latest_state(db, user_id)
+    state = _latest_state_cache(db, user_id)
     if state is None:
-        raise ValueError("State estimates not available. Run update-state first.")
+        raise ValueError("State cache not available. Run update-state first.")
 
-    acwr_value = _latest_acwr(db, user_id)
+    acwr_value = state.acwr
     days_to_race = _days_to_next_race(db, user_id, today)
     phase = detect_periodization_phase(days_to_race, acwr_value)
 
@@ -171,6 +189,15 @@ def recommend_action(db: Session, user_id: int, today: date | None = None) -> Re
         "polarized_easy_pct": easy_pct,
         "polarized_hard_pct": hard_pct,
     }
+
+    existing_today = db.scalar(
+        select(Recommendation).where(
+            Recommendation.user_id == user_id,
+            Recommendation.recommendation_date == today,
+        )
+    )
+    if existing_today is not None:
+        db.delete(existing_today)
 
     db.add(
         Recommendation(

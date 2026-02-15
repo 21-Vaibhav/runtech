@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -56,6 +57,7 @@ def sync_activities(db: Session, user_id: int, days_back: int = 90) -> SyncResul
         SyncResult: Sync count summary.
     """
 
+    t0 = time.perf_counter()
     user = db.get(User, user_id)
     if user is None:
         raise ValueError(f"User {user_id} not found")
@@ -68,30 +70,39 @@ def sync_activities(db: Session, user_id: int, days_back: int = 90) -> SyncResul
     computed = 0
     page = 1
 
+    stream_rows: list[ActivityStream] = []
+    metric_rows: list[ComputedMetric] = []
+
     while True:
         activities = client.list_activities(after_epoch=after_epoch, page=page, per_page=100)
         if not activities:
             break
 
         for raw_activity in activities:
-            if raw_activity.get("type") != "Run":
-                continue
 
             strava_id = int(raw_activity["id"])
             existing = db.scalar(select(Activity).where(Activity.strava_activity_id == strava_id))
             if existing is not None:
                 continue
 
-            streams = client.get_activity_streams(strava_id)
+            try:
+                streams = client.get_activity_streams(strava_id)
+            except Exception:
+                # Some activity types may not expose detailed streams.
+                streams = {}
             velocity = _stream_data(streams, "velocity_smooth")
             hr_stream = _stream_data(streams, "heartrate")
             alt_stream = _stream_data(streams, "altitude")
             cad_stream = _stream_data(streams, "cadence")
             latlng_stream = streams.get("latlng", {}).get("data", [])
 
-            gps_drift = detect_gps_drift(velocity, latlng_stream)
-            hr_flags = detect_hr_anomalies(hr_stream)
-            completeness = completeness_score(streams, expected=["time", "heartrate", "velocity_smooth", "altitude", "cadence"])
+            expected_streams = ["time", "heartrate"]
+            if raw_activity.get("type") == "Run":
+                expected_streams.extend(["velocity_smooth", "altitude", "cadence"])
+
+            gps_drift = detect_gps_drift(velocity, latlng_stream) if velocity else False
+            hr_flags = detect_hr_anomalies(hr_stream) if hr_stream else {"out_of_range": False, "flatline": False}
+            completeness = completeness_score(streams, expected=expected_streams)
 
             quality_flags = {
                 "gps_drift": gps_drift,
@@ -127,39 +138,73 @@ def sync_activities(db: Session, user_id: int, days_back: int = 90) -> SyncResul
             }
             for stream_type, values in stream_payloads.items():
                 if values:
-                    db.add(ActivityStream(activity_id=activity.id, stream_type=stream_type, values=values))
+                    stream_rows.append(ActivityStream(activity_id=activity.id, stream_type=stream_type, values=values))
 
             duration_min = max(activity.moving_time_s / 60.0, 1.0)
-            trimp = trimp_edwards(hr_stream if hr_stream else [activity.average_heartrate or 0.0], max_hr=190)
-            gap = grade_adjusted_pace(activity.distance_m, activity.moving_time_s, activity.total_elevation_gain_m)
-            eff, drift = efficiency_index(activity.distance_m, activity.moving_time_s, activity.average_heartrate, hr_stream)
-            vo2 = vo2max_daniels(activity.distance_m, activity.moving_time_s)
+            activity_type = activity.type.lower()
+            trimp = trimp_edwards(hr_stream if hr_stream else ([activity.average_heartrate] if activity.average_heartrate else []), max_hr=190)
+            gap = grade_adjusted_pace(activity.distance_m, activity.moving_time_s, activity.total_elevation_gain_m) if activity.type == "Run" else 0.0
+            eff, drift = (
+                efficiency_index(activity.distance_m, activity.moving_time_s, activity.average_heartrate, hr_stream)
+                if activity.type == "Run"
+                else (0.0, 0.0)
+            )
+            vo2 = vo2max_daniels(activity.distance_m, activity.moving_time_s) if activity.type == "Run" else 0.0
+
+            # Unified session load so non-running sessions (e.g. weights) still contribute to fatigue.
+            if trimp > 0:
+                session_load = trimp
+            else:
+                type_factor = 1.0
+                if "weight" in activity_type or "workout" in activity_type:
+                    type_factor = 1.35
+                elif "ride" in activity_type or "cycle" in activity_type:
+                    type_factor = 1.1
+                elif "walk" in activity_type or "hike" in activity_type:
+                    type_factor = 0.75
+                elif "yoga" in activity_type or "pilates" in activity_type:
+                    type_factor = 0.55
+                session_load = duration_min * type_factor
 
             metric_pairs = {
                 "trimp": trimp,
+                "session_load": session_load,
                 "grade_adjusted_pace": gap,
                 "efficiency_index": eff,
                 "efficiency_drift": drift,
                 "vo2max": vo2,
             }
             for name, value in metric_pairs.items():
-                db.add(
+                metric_rows.append(
                     ComputedMetric(
                         user_id=user_id,
                         activity_id=activity.id,
                         metric_date=activity.start_date.date(),
                         metric_name=name,
                         metric_value=float(value),
-                        metadata_json={"duration_min": duration_min},
+                        metadata_json={"duration_min": duration_min, "activity_type": activity.type},
                     )
                 )
                 computed += 1
 
             synced += 1
 
+            if len(stream_rows) >= 500:
+                db.add_all(stream_rows)
+                stream_rows.clear()
+            if len(metric_rows) >= 1000:
+                db.add_all(metric_rows)
+                metric_rows.clear()
+
         page += 1
 
+    if stream_rows:
+        db.add_all(stream_rows)
+    if metric_rows:
+        db.add_all(metric_rows)
+
     _recompute_daily_acwr(db=db, user_id=user_id)
+    LOGGER.info("sync_activities completed user=%s synced=%s metrics=%s elapsed=%.2fs", user_id, synced, computed, time.perf_counter() - t0)
     return SyncResult(synced_activities=synced, computed_metrics=computed)
 
 
@@ -176,7 +221,7 @@ def _recompute_daily_acwr(db: Session, user_id: int) -> None:
 
     rows = db.scalars(
         select(ComputedMetric)
-        .where(ComputedMetric.user_id == user_id, ComputedMetric.metric_name == "trimp")
+        .where(ComputedMetric.user_id == user_id, ComputedMetric.metric_name == "session_load")
         .order_by(ComputedMetric.metric_date.asc())
     ).all()
     series = [(row.metric_date, row.metric_value) for row in rows]

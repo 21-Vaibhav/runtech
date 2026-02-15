@@ -41,6 +41,7 @@ class Settings:
     strava_redirect_uri: str = os.getenv("STRAVA_REDIRECT_URI", "http://localhost:8000/auth/callback")
     database_url: str = os.getenv("DATABASE_URL", _default_database_url())
     llm_model: str = os.getenv("LLM_MODEL", "microsoft/phi-3-mini-4k-instruct")
+    narrative_mode: str = os.getenv("NARRATIVE_MODE", "fast")
     fitness_decay_days: int = int(os.getenv("FITNESS_DECAY_DAYS", "42"))
     fatigue_decay_days: int = int(os.getenv("FATIGUE_DECAY_DAYS", "7"))
     acwr_acute_days: int = int(os.getenv("ACWR_ACUTE_DAYS", "7"))

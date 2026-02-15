@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.vercel/
+
+.env
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+

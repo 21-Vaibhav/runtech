@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 import logging
 import webbrowser
-from datetime import date
+from datetime import datetime, timedelta
 
 import click
 from sqlalchemy import select
 
-from app.data.database import SessionLocal, User, init_db
+from app.data.database import SessionLocal, User, UserStateCache, init_db
 from app.data.pipeline import sync_activities
 from app.data.strava_client import StravaClient
 from app.decision.optimizer import recommend_action
@@ -94,11 +94,25 @@ def sync_cmd(user_id: int, days: int) -> None:
 
 @cli.command("update-state")
 @click.option("--user-id", required=True, type=int)
-def update_state_cmd(user_id: int) -> None:
+@click.option("--force", is_flag=True, default=False, help="Force recomputation even if cache is fresh")
+def update_state_cmd(user_id: int, force: bool) -> None:
     """Run state estimators for user."""
 
     db = SessionLocal()
     try:
+        cache = db.scalar(select(UserStateCache).where(UserStateCache.user_id == user_id))
+        if cache and not force and cache.updated_at >= datetime.utcnow() - timedelta(hours=6):
+            click.echo(
+                json.dumps(
+                    {
+                        "status": "skipped",
+                        "reason": "state cache is fresh",
+                        "updated_at": cache.updated_at.isoformat(),
+                    },
+                    indent=2,
+                )
+            )
+            return
         result = update_state_estimates(db=db, user_id=user_id)
         db.commit()
         payload = {

@@ -1,4 +1,4 @@
-"""State estimation models: Kalman and Banister impulse-response."""
+﻿"""State estimation models: Kalman + Banister impulse-response with cache writes."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.data.database import ComputedMetric, StateEstimate
+from app.data.database import ComputedMetric, StateEstimate, UserStateCache
 from app.models.confidence import confidence_interval
 
 
@@ -26,21 +26,28 @@ class StateResult:
     fatigue_ci: tuple[float, float]
 
 
-def _daily_trimp(db: Session, user_id: int) -> dict[date, float]:
+def _daily_load(db: Session, user_id: int) -> dict[date, float]:
     rows = db.scalars(
         select(ComputedMetric)
-        .where(ComputedMetric.user_id == user_id, ComputedMetric.metric_name == "trimp")
+        .where(ComputedMetric.user_id == user_id, ComputedMetric.metric_name == "session_load")
         .order_by(ComputedMetric.metric_date.asc())
     ).all()
-    loads: dict[date, float] = {}
+    if not rows:
+        rows = db.scalars(
+            select(ComputedMetric)
+            .where(ComputedMetric.user_id == user_id, ComputedMetric.metric_name == "trimp")
+            .order_by(ComputedMetric.metric_date.asc())
+        ).all()
+
+    out: dict[date, float] = {}
     for row in rows:
-        loads[row.metric_date] = loads.get(row.metric_date, 0.0) + row.metric_value
-    return loads
+        out[row.metric_date] = out.get(row.metric_date, 0.0) + row.metric_value
+    return out
 
 
 def _date_range(loads: dict[date, float]) -> list[date]:
     if not loads:
-        return [datetime.utcnow().date()]
+        return [datetime.now(UTC).date()]
     min_day = min(loads.keys())
     max_day = max(max(loads.keys()), datetime.now(UTC).date())
     days: list[date] = []
@@ -52,17 +59,18 @@ def _date_range(loads: dict[date, float]) -> list[date]:
 
 
 def run_kalman_state(db: Session, user_id: int) -> StateResult:
-    """Estimate state with a simple 2D Kalman filter.
+    """Estimate state using 2D Kalman update.
 
-    Args:
-        db: Database session.
-        user_id: User id.
+    Equations:
+        x_t^- = A x_{t-1} + B u_t
+        P_t^- = A P_{t-1} A^T + Q
+        K_t = P_t^- (P_t^- + R)^{-1}
+        x_t = x_t^- + K_t (z_t - x_t^-)
 
-    Returns:
-        StateResult: Most recent Kalman estimate.
+    State dimensions represent fitness and fatigue driven by daily load observations.
     """
 
-    loads = _daily_trimp(db, user_id)
+    loads = _daily_load(db, user_id)
     days = _date_range(loads)
 
     tau_fit = float(settings.fitness_decay_days)
@@ -111,22 +119,19 @@ def run_kalman_state(db: Session, user_id: int) -> StateResult:
             fatigue_ci_high=fat_ci[1],
         )
     )
-
     return StateResult("kalman", x_fit, x_fat, form, fit_ci, fat_ci)
 
 
 def run_impulse_response_state(db: Session, user_id: int) -> StateResult:
-    """Estimate state with Banister impulse-response equations.
+    """Estimate state with Banister impulse-response model.
 
-    Args:
-        db: Database session.
-        user_id: User id.
-
-    Returns:
-        StateResult: Most recent impulse-response estimate.
+    Equations:
+        fitness(t) = sum_i(load_i * exp(-delta_i / tau_fit))
+        fatigue(t) = sum_i(load_i * exp(-delta_i / tau_fat))
+        form(t) = fitness(t) - fatigue(t)
     """
 
-    loads = _daily_trimp(db, user_id)
+    loads = _daily_load(db, user_id)
     days = _date_range(loads)
 
     tau_fit = float(settings.fitness_decay_days)
@@ -146,10 +151,8 @@ def run_impulse_response_state(db: Session, user_id: int) -> StateResult:
     fat = max(0.0, fat)
     form = fit - fat
 
-    fit_var = max(4.0, fit * 0.1)
-    fat_var = max(4.0, fat * 0.12)
-    fit_ci = confidence_interval(fit, fit_var)
-    fat_ci = confidence_interval(fat, fat_var)
+    fit_ci = confidence_interval(fit, max(4.0, fit * 0.1))
+    fat_ci = confidence_interval(fat, max(4.0, fat * 0.12))
 
     db.execute(delete(StateEstimate).where(StateEstimate.user_id == user_id, StateEstimate.model_name == "impulse_response"))
     db.add(
@@ -170,17 +173,52 @@ def run_impulse_response_state(db: Session, user_id: int) -> StateResult:
     return StateResult("impulse_response", fit, fat, form, fit_ci, fat_ci)
 
 
+def _latest_acwr(db: Session, user_id: int) -> float:
+    row = db.scalar(
+        select(ComputedMetric)
+        .where(ComputedMetric.user_id == user_id, ComputedMetric.metric_name == "acwr")
+        .order_by(ComputedMetric.metric_date.desc())
+    )
+    return row.metric_value if row else 1.0
+
+
 def update_state_estimates(db: Session, user_id: int) -> dict[str, StateResult]:
-    """Run and persist both models.
+    """Run full state pipeline and update cache table.
 
-    Args:
-        db: Database session.
-        user_id: User id.
-
-    Returns:
-        dict[str, StateResult]: Model outputs keyed by model name.
+    This function should be called by the explicit update-state workflow.
+    /recommend reads only from cache to minimize latency.
     """
 
     kalman = run_kalman_state(db, user_id)
     impulse = run_impulse_response_state(db, user_id)
+    acwr_value = _latest_acwr(db, user_id)
+
+    cache = db.scalar(select(UserStateCache).where(UserStateCache.user_id == user_id))
+    if cache is None:
+        cache = UserStateCache(
+            user_id=user_id,
+            updated_at=datetime.utcnow(),
+            model_name="kalman",
+            fitness=kalman.fitness,
+            fatigue=kalman.fatigue,
+            form=kalman.form,
+            fitness_ci_low=kalman.fitness_ci[0],
+            fitness_ci_high=kalman.fitness_ci[1],
+            fatigue_ci_low=kalman.fatigue_ci[0],
+            fatigue_ci_high=kalman.fatigue_ci[1],
+            acwr=acwr_value,
+        )
+        db.add(cache)
+    else:
+        cache.updated_at = datetime.utcnow()
+        cache.model_name = "kalman"
+        cache.fitness = kalman.fitness
+        cache.fatigue = kalman.fatigue
+        cache.form = kalman.form
+        cache.fitness_ci_low = kalman.fitness_ci[0]
+        cache.fitness_ci_high = kalman.fitness_ci[1]
+        cache.fatigue_ci_low = kalman.fatigue_ci[0]
+        cache.fatigue_ci_high = kalman.fatigue_ci[1]
+        cache.acwr = acwr_value
+
     return {"kalman": kalman, "impulse_response": impulse}
