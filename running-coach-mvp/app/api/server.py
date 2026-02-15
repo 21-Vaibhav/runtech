@@ -203,6 +203,11 @@ def _readiness_label(form: float, acwr_value: float, confidence: float) -> str:
 
 @app.get("/auth/url")
 def auth_url() -> dict[str, str]:
+    if not settings.strava_client_id or not settings.strava_client_secret:
+        raise HTTPException(
+            status_code=500,
+            detail="Strava credentials missing. Configure STRAVA_CLIENT_ID and STRAVA_CLIENT_SECRET.",
+        )
     state = StravaClient.create_oauth_state()
     return {"url": StravaClient().get_auth_url(state=state), "state": state}
 

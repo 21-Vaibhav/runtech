@@ -658,6 +658,17 @@
       setStatus("Dashboard updated", "good");
     }
 
+    async function ensureUserReady() {
+      const users = await request("/users");
+      if (!Array.isArray(users) || users.length === 0) {
+        throw new Error("No linked user found. Click Open Auth and finish Strava authorization first.");
+      }
+      const current = Number(ui.userId.value || 0);
+      const selected = users.find((u) => Number(u.id) === current) || users[0];
+      ui.userId.value = selected.id;
+      return selected.id;
+    }
+
     $("usersBtn").addEventListener("click", () => run("Loading users...", async () => {
       const users = await request("/users");
       ui.apiOut.textContent = JSON.stringify(users, null, 2);
@@ -670,10 +681,15 @@
     }));
 
     $("openAuthBtn").addEventListener("click", () => run("Opening auth...", async () => {
+      const popup = window.open("", "_blank", "noopener");
       const payload = await request("/auth/url");
       ui.apiOut.textContent = JSON.stringify(payload, null, 2);
       if (payload.state) localStorage.setItem("rc_oauth_state", payload.state);
-      window.open(payload.url, "_blank", "noopener");
+      if (popup) {
+        popup.location.href = payload.url;
+      } else {
+        window.location.href = payload.url;
+      }
       setStatus("Auth window opened. Complete Strava authorization there.", "good");
     }));
 
@@ -702,29 +718,48 @@
     }));
 
     $("syncBtn").addEventListener("click", () => run("Syncing activities...", async () => {
+      const activeUserId = await ensureUserReady();
       const payload = await request("/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId(), days_back: Number(ui.daysBack.value || 90) }),
+        body: JSON.stringify({ user_id: activeUserId, days_back: Number(ui.daysBack.value || 90) }),
       });
       ui.apiOut.textContent = JSON.stringify(payload, null, 2);
-      setStatus("Sync complete. Update state next.", "good");
+      await request(`/state/update/${activeUserId}`, { method: "POST" });
+      setStatus("Sync + state update complete.", "good");
       await refreshDashboard();
     }));
 
     $("updateStateBtn").addEventListener("click", () => run("Updating state...", async () => {
-      const payload = await request(`/state/update/${userId()}`, { method: "POST" });
+      const activeUserId = await ensureUserReady();
+      const payload = await request(`/state/update/${activeUserId}`, { method: "POST" });
       ui.apiOut.textContent = JSON.stringify(payload, null, 2);
       setStatus("State cache updated", "good");
       await refreshDashboard();
     }));
 
     $("recommendBtn").addEventListener("click", () => run("Generating recommendation...", async () => {
-      const payload = await request(`/recommend/${userId()}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "kalman" }),
-      });
+      const activeUserId = await ensureUserReady();
+      let payload;
+      try {
+        payload = await request(`/recommend/${activeUserId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model: "kalman" }),
+        });
+      } catch (error) {
+        const msg = String(error);
+        if (msg.includes("State cache missing")) {
+          await request(`/state/update/${activeUserId}`, { method: "POST" });
+          payload = await request(`/recommend/${activeUserId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ model: "kalman" }),
+          });
+        } else {
+          throw error;
+        }
+      }
       ui.apiOut.textContent = JSON.stringify(payload, null, 2);
       renderRecommendation(payload);
       setStatus("Recommendation ready", "good");
@@ -734,7 +769,8 @@
     $("refreshBtn").addEventListener("click", () => run("Refreshing dashboard...", refreshDashboard));
 
     $("historyBtn").addEventListener("click", () => run("Loading history...", async () => {
-      const payload = await request(`/history/${userId()}`);
+      const activeUserId = await ensureUserReady();
+      const payload = await request(`/history/${activeUserId}`);
       ui.apiOut.textContent = JSON.stringify(payload, null, 2);
       if (payload.weekly_summary) {
         ui.narrative.textContent = payload.weekly_summary;
