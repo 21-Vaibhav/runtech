@@ -53,7 +53,6 @@ class Settings:
         max_hard_runs_per_week: Weekly hard run cap.
         injury_risk_threshold: ACWR threshold for injury risk.
         cors_origins: Allowed cross-origin origins.
-        api_key: Optional API key for protected endpoints.
     """
 
     strava_client_id: str = os.getenv("STRAVA_CLIENT_ID", "")
@@ -67,7 +66,6 @@ class Settings:
     max_hard_runs_per_week: int = int(os.getenv("MAX_HARD_RUNS_PER_WEEK", "2"))
     injury_risk_threshold: float = float(os.getenv("INJURY_RISK_THRESHOLD", "1.5"))
     cors_origins: tuple[str, ...] = _parse_csv_env(os.getenv("CORS_ORIGINS", "")) or _default_cors_origins()
-    api_key: str = os.getenv("API_KEY", "")
 
     def __post_init__(self) -> None:
         """Normalize relative SQLite paths so DB is stable across launch directories."""
