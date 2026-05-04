@@ -79,8 +79,11 @@ Implemented and documented in code:
 
 ## API Endpoints
 
+- `GET /auth/login`
 - `GET /auth/url`
 - `POST /auth/callback`
+- `GET /csrf`
+- `POST /logout`
 - `POST /sync`
 - `GET /state/{user_id}`
 - `POST /state/update/{user_id}`
@@ -89,6 +92,8 @@ Implemented and documented in code:
 - `GET /stats/{user_id}`
 - `GET /history/{user_id}`
 - `GET /dashboard/{user_id}`
+- `POST /account/delete`
+- `POST /account/opt-out`
 
 Swagger: `http://localhost:8000/docs`
 
@@ -131,4 +136,27 @@ Current local status: all tests pass.
 
 - Configure `CORS_ORIGINS` to your frontend origins in production.
 - OAuth uses signed `state` tokens; always complete auth from `/auth/url`.
-- Session tokens are required for user data endpoints; set `SESSION_SECRET` in production.
+- Session is JWT in HTTP-only cookie (`HS256`) with 24h TTL by default.
+- CSRF is enforced for state-changing endpoints with `X-CSRF-Token` double-submit cookie.
+- Strava access/refresh tokens are encrypted at rest with Fernet (`TOKEN_ENCRYPTION_KEY`).
+
+## Required Environment Variables (Vercel)
+
+- `STRAVA_CLIENT_ID`
+- `STRAVA_CLIENT_SECRET`
+- `STRAVA_REDIRECT_URI` (must be `https://<your-domain>/auth/callback`)
+- `DATABASE_URL` (recommended managed Postgres in production)
+- `SECRET_KEY` (JWT signing secret)
+- `TOKEN_ENCRYPTION_KEY` (Fernet key; generate with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`)
+- `COOKIE_SECURE=true`
+- `CORS_ORIGINS=https://<your-domain>`
+- optional: `SESSION_TTL_HOURS=24`
+
+## Support and Privacy
+
+- Privacy page: `/privacy`
+- Support page: `/support`
+- Support email: `vaibhaaavvvvvvvv@gmail.com`
+- Athletes can opt out and permanently delete stored data from the support page or via:
+  - `POST /account/opt-out`
+  - `POST /account/delete`

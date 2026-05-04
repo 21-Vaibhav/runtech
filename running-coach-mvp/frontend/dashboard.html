@@ -1,0 +1,701 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RunTech Coach</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg: #090d14;
+      --bg-soft: #101826;
+      --card: rgba(18, 28, 44, 0.9);
+      --card-2: rgba(21, 33, 52, 0.9);
+      --line: #283a56;
+      --text: #edf3ff;
+      --muted: #9eb0c9;
+      --blue: #cfd4dd;
+      --teal: #b7bdc8;
+      --amber: #9fa6b2;
+      --rose: #7f8793;
+      --radius: 18px;
+      --shadow: 0 18px 60px rgba(0, 0, 0, 0.42);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background:
+        radial-gradient(1000px 500px at 110% -10%, rgba(190, 197, 210, 0.11), transparent 60%),
+        radial-gradient(760px 520px at -20% 20%, rgba(155, 163, 177, 0.09), transparent 56%),
+        linear-gradient(165deg, var(--bg), var(--bg-soft));
+      min-height: 100vh;
+    }
+
+    .progress {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 0;
+      height: 3px;
+      opacity: 0;
+      z-index: 99;
+      background: linear-gradient(90deg, var(--blue), var(--teal));
+      box-shadow: 0 0 18px rgba(111, 217, 255, 0.8);
+      transition: width 160ms linear, opacity 220ms;
+    }
+    body.busy .progress { opacity: 1; }
+
+    .shell {
+      width: min(1240px, 96vw);
+      margin: 18px auto 34px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .topbar {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, var(--card), var(--card-2));
+      box-shadow: var(--shadow);
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .brand-dot {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: linear-gradient(145deg, #cfd4dd, #8d95a3);
+      box-shadow: 0 8px 18px rgba(120, 126, 137, 0.45);
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #b7bdc8;
+      box-shadow: 0 0 12px rgba(183, 189, 200, 0.6);
+    }
+    .dot.warn { background: #9fa6b2; box-shadow: 0 0 12px rgba(159, 166, 178, 0.6); }
+    .dot.bad { background: #7f8793; box-shadow: 0 0 12px rgba(127, 135, 147, 0.6); }
+
+    .main {
+      display: grid;
+      grid-template-columns: 1.25fr 1fr;
+      gap: 14px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, var(--card), var(--card-2));
+      box-shadow: var(--shadow);
+      padding: 16px;
+    }
+
+    h1, h2, h3 { margin: 0; }
+    h1 { font-size: clamp(1.4rem, 2vw, 2rem); line-height: 1.2; }
+    h2 { font-size: 1.05rem; }
+
+    .muted { color: var(--muted); }
+
+    .hero p {
+      margin: 10px 0 0;
+      color: var(--muted);
+      line-height: 1.45;
+      max-width: 62ch;
+    }
+
+    .hero-actions {
+      margin-top: 14px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: none;
+      border-radius: 12px;
+      padding: 10px 14px;
+      font: inherit;
+      font-weight: 700;
+      color: #14181f;
+      cursor: pointer;
+      background: linear-gradient(90deg, var(--blue), #b7bec9);
+    }
+    button.secondary {
+      color: #20252e;
+      background: linear-gradient(90deg, #c2c8d1, #dde1e8);
+    }
+    button:disabled { opacity: 0.58; cursor: not-allowed; }
+
+    .kpis {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
+      gap: 8px;
+    }
+    .kpi {
+      border: 1px solid #314a6a;
+      border-radius: 12px;
+      background: rgba(9, 15, 25, 0.5);
+      padding: 10px;
+    }
+    .kpi .label {
+      font-size: 0.73rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+    }
+    .kpi .value {
+      margin-top: 4px;
+      font-size: 1.15rem;
+      font-weight: 800;
+    }
+
+    .recommend-box {
+      margin-top: 10px;
+      border: 1px solid #4f5f74;
+      border-radius: 14px;
+      background: rgba(184, 190, 201, 0.12);
+      padding: 12px;
+    }
+    .recommend-title {
+      color: var(--muted);
+      text-transform: uppercase;
+      font-size: 0.74rem;
+      letter-spacing: 0.06em;
+    }
+    .recommend-action {
+      margin-top: 4px;
+      font-size: 1.7rem;
+      font-weight: 900;
+      letter-spacing: 0.02em;
+    }
+    .recommend-meta {
+      margin-top: 6px;
+      color: #d6dae1;
+      font-size: 0.9rem;
+    }
+
+    .badge {
+      display: inline-block;
+      margin-top: 10px;
+      border: 1px solid #4f5f74;
+      border-radius: 999px;
+      padding: 4px 10px;
+      color: #d7dbe2;
+      background: rgba(184, 190, 201, 0.12);
+      font-size: 0.8rem;
+    }
+    .badge.green { border-color: #1f8f5a; color: #baf1d9; background: rgba(31, 143, 90, 0.16); }
+    .badge.yellow { border-color: #9a7a1f; color: #ffe4ad; background: rgba(154, 122, 31, 0.16); }
+    .badge.red { border-color: #a2384f; color: #ffc5ce; background: rgba(162, 56, 79, 0.16); }
+
+    .panel {
+      margin-top: 10px;
+      border: 1px solid #314d6f;
+      border-radius: 10px;
+      background: #0b1423;
+      color: #d7dce3;
+      padding: 10px;
+      font-size: 0.83rem;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .grid-bottom {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr;
+      gap: 14px;
+    }
+
+    .chart-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .chart-wrap { height: 220px; }
+    .chart-note {
+      margin-top: 5px;
+      font-size: 0.74rem;
+      color: var(--muted);
+      min-height: 2.1em;
+    }
+
+    .chips {
+      margin-top: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .chip {
+      border: 1px solid #35597b;
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 0.76rem;
+      color: #d5dae2;
+      background: rgba(150, 158, 171, 0.12);
+    }
+
+    .feedback {
+      margin-top: 10px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+
+    .output {
+      margin-top: 10px;
+      border: 1px solid #334f70;
+      border-radius: 10px;
+      background: #0b1423;
+      color: #d8dde4;
+      padding: 10px;
+      font-size: 0.78rem;
+      max-height: 260px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    details {
+      border: 1px solid #2f4a68;
+      border-radius: 10px;
+      background: rgba(7, 15, 26, 0.6);
+      padding: 8px 10px;
+      margin-top: 8px;
+    }
+    summary { cursor: pointer; font-weight: 700; color: #d6dae2; }
+    details p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.45;
+    }
+
+    .skeleton {
+      position: relative;
+      overflow: hidden;
+      color: transparent !important;
+      background: #152438 !important;
+    }
+    .skeleton::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      transform: translateX(-100%);
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+      animation: shimmer 1.2s infinite;
+    }
+    @keyframes shimmer { 100% { transform: translateX(100%); } }
+
+    @media (max-width: 1080px) {
+      .main, .grid-bottom { grid-template-columns: 1fr; }
+      .chart-grid { grid-template-columns: 1fr; }
+      .kpis { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+    }
+
+    .footer {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, var(--card), var(--card-2));
+      box-shadow: var(--shadow);
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    .footer a {
+      color: #d6dae2;
+      text-decoration: none;
+      border-bottom: 1px solid #5a616d;
+    }
+  </style>
+</head>
+<body>
+  <div id="progress" class="progress"></div>
+
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-dot"></span><span>RunTech Coach</span></div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">Ready</span></div>
+        <button data-action id="logoutBtn" class="secondary">Logout</button>
+      </div>
+    </header>
+
+    <section class="main">
+      <section class="card hero">
+        <h1>Smart Training, One Clean Flow</h1>
+        <p>
+          Connect your Strava once, then RunTech syncs activities, updates your training state, and gives today’s recommendation.
+          No manual API URL or user ID needed.
+        </p>
+        <div class="hero-actions">
+          <button data-action id="fullFlowBtn">Connect + Sync + Recommend</button>
+          <button data-action id="refreshBtn" class="secondary">Refresh Dashboard</button>
+        </div>
+        <div class="kpis">
+          <div class="kpi"><div class="label" title="Readiness combines form, ACWR, and confidence.">Readiness</div><div id="kReadiness" class="value skeleton">steady</div></div>
+          <div class="kpi"><div class="label" title="Form = fitness minus fatigue. Higher can indicate fresher legs.">Form</div><div id="kForm" class="value skeleton">0.0</div></div>
+          <div class="kpi"><div class="label" title="ACWR is recent load vs baseline load. Higher values can mean spike risk.">ACWR</div><div id="kAcwr" class="value skeleton">1.00</div></div>
+          <div class="kpi"><div class="label">Sessions (7d)</div><div id="kSessions" class="value skeleton">0</div></div>
+        </div>
+
+        <div class="recommend-box">
+          <div class="recommend-title">Today Recommendation</div>
+          <div id="recAction" class="recommend-action">Not generated</div>
+          <div id="recMeta" class="recommend-meta">Run the one-click flow to generate your plan.</div>
+        </div>
+        <div id="readinessBadge" class="badge yellow">Readiness: unknown</div>
+        <div id="recReason" class="panel">Reasoning appears here.</div>
+        <div id="narrative" class="panel">Narrative explanation appears here.</div>
+      </section>
+
+      <aside class="card">
+        <h2>Coach Notes</h2>
+        <details open>
+          <summary>How recommendation is decided</summary>
+          <p>The engine balances fitness gain vs fatigue and injury risk, then enforces safety constraints like ACWR and taper rules.</p>
+        </details>
+        <details>
+          <summary>What ACWR means</summary>
+          <p>ACWR = 7-day training load divided by 28-day load. A high ratio can indicate a sudden spike in stress.</p>
+        </details>
+        <details>
+          <summary>What Form means</summary>
+          <p>Form is fitness minus fatigue. Positive form often means fresher legs; very negative form suggests caution.</p>
+        </details>
+        <details>
+          <summary>What to do if sync fails</summary>
+          <p>Re-run one-click flow. If auth expired, it will reopen Strava and continue automatically after consent.</p>
+        </details>
+
+        <h3 style="margin-top:14px;">Feedback</h3>
+        <div class="feedback">
+          <button data-action class="secondary feedback-btn" data-act="rest">Rest</button>
+          <button data-action class="secondary feedback-btn" data-act="easy">Easy</button>
+          <button data-action class="secondary feedback-btn" data-act="moderate">Moderate</button>
+          <button data-action class="secondary feedback-btn" data-act="hard">Hard</button>
+        </div>
+
+        <pre id="apiOut" class="output">Activity log...</pre>
+      </aside>
+    </section>
+
+    <section class="grid-bottom">
+      <section class="card">
+        <h2>Trends</h2>
+        <div class="chart-grid">
+          <div>
+            <div class="chart-wrap"><canvas id="stateChart"></canvas></div>
+            <div id="stateChartNote" class="chart-note"></div>
+          </div>
+          <div>
+            <div class="chart-wrap"><canvas id="loadChart"></canvas></div>
+            <div id="loadChartNote" class="chart-note"></div>
+          </div>
+          <div>
+            <div class="chart-wrap"><canvas id="acwrChart"></canvas></div>
+            <div id="acwrChartNote" class="chart-note"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Activity Mix</h2>
+        <p id="weeklySummary" class="muted" style="margin:8px 0 0;">Weekly summary appears here.</p>
+        <p class="muted" style="margin:8px 0 0;">Last 7 days by type</p>
+        <div id="activityMix" class="chips"></div>
+      </section>
+    </section>
+
+    <footer class="footer">
+      <span>RunTech Coach</span>
+      <div style="display:flex; gap:12px; align-items:center;">
+        <a href="/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
+        <a href="/support" target="_blank" rel="noopener noreferrer">Support</a>
+      </div>
+    </footer>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+    const appState = {
+      busy: false,
+      progress: 0,
+      progressTimer: null,
+      latestRecommendation: null,
+      charts: { state: null, load: null, acwr: null },
+      currentUserId: null,
+      csrfToken: "",
+    };
+
+    const ui = {
+      progress: $("progress"),
+      statusText: $("statusText"),
+      statusDot: $("statusDot"),
+      apiOut: $("apiOut"),
+      kReadiness: $("kReadiness"),
+      kForm: $("kForm"),
+      kAcwr: $("kAcwr"),
+      kSessions: $("kSessions"),
+      recAction: $("recAction"),
+      recMeta: $("recMeta"),
+      readinessBadge: $("readinessBadge"),
+      recReason: $("recReason"),
+      narrative: $("narrative"),
+      weeklySummary: $("weeklySummary"),
+      activityMix: $("activityMix"),
+      stateChartNote: $("stateChartNote"),
+      loadChartNote: $("loadChartNote"),
+      acwrChartNote: $("acwrChartNote"),
+    };
+
+    function setStatus(text, tone = "good") {
+      ui.statusText.textContent = text;
+      ui.statusDot.className = `dot ${tone === "good" ? "" : tone}`.trim();
+    }
+
+    function appendLog(line) {
+      const stamp = new Date().toLocaleTimeString();
+      ui.apiOut.textContent = `[${stamp}] ${line}\n` + ui.apiOut.textContent;
+    }
+
+    function badgeColorFromReadiness(readiness) {
+      if (readiness === "ready") return "green";
+      if (readiness === "caution") return "red";
+      return "yellow";
+    }
+
+    function setBusy(on, label = "Working...") {
+      appState.busy = on;
+      document.body.classList.toggle("busy", on);
+      for (const btn of $$("button[data-action]")) btn.disabled = on;
+      if (on) {
+        setStatus(label, "warn");
+        appState.progress = 10;
+        ui.progress.style.width = `${appState.progress}%`;
+        if (appState.progressTimer) clearInterval(appState.progressTimer);
+        appState.progressTimer = setInterval(() => {
+          appState.progress = Math.min(92, appState.progress + Math.max(1, (98 - appState.progress) * 0.08));
+          ui.progress.style.width = `${appState.progress}%`;
+        }, 170);
+      } else {
+        if (appState.progressTimer) clearInterval(appState.progressTimer);
+        appState.progressTimer = null;
+        ui.progress.style.width = "100%";
+        setTimeout(() => { ui.progress.style.width = "0%"; }, 240);
+      }
+    }
+
+    function clearSkeletons() {
+      for (const el of [ui.kReadiness, ui.kForm, ui.kAcwr, ui.kSessions]) el.classList.remove("skeleton");
+    }
+
+    async function request(path, options = {}, requireCsrf = false) {
+      const headers = new Headers(options.headers || {});
+      if (requireCsrf) headers.set("X-CSRF-Token", appState.csrfToken || "");
+      const response = await fetch(path, { ...options, headers, credentials: "include" });
+      const raw = await response.text();
+      if (!response.ok) {
+        let detail = raw;
+        try { detail = JSON.parse(raw).detail || raw; } catch (_) {}
+        if (response.status === 401) window.location.replace("/");
+        throw new Error(`${response.status}: ${detail}`);
+      }
+      return raw ? JSON.parse(raw) : {};
+    }
+
+    async function initSession() {
+      const me = await request("/me");
+      appState.currentUserId = Number(me.id);
+      appState.csrfToken = me.csrf_token || "";
+      if (!appState.csrfToken) {
+        const tokenPayload = await request("/csrf");
+        appState.csrfToken = tokenPayload.csrf_token || "";
+      }
+      if (!appState.currentUserId) window.location.replace("/");
+    }
+
+    function destroyChart(chart) { if (chart) chart.destroy(); }
+
+    function renderRecommendation(payload) {
+      if (!payload || !payload.recommended_action) return;
+      appState.latestRecommendation = payload;
+      const reason = payload.reasoning_dict || {};
+      ui.recAction.textContent = payload.action_message || String(payload.recommended_action).toUpperCase();
+      ui.recMeta.textContent = `Action: ${String(payload.recommended_action).toUpperCase()} | Confidence ${Number(payload.confidence_score || 0).toFixed(2)} | Form ${Number(reason.form || 0).toFixed(1)} | ACWR ${Number(reason.acwr || 0).toFixed(2)}`;
+      ui.recReason.textContent = `Blocked actions: ${(reason.blocked_actions || []).join(", ") || "none"}\nConstraint reasons: ${(reason.hard_constraint_reasons || []).join(", ") || "none"}`;
+      ui.narrative.textContent = payload.narrative || "No narrative generated.";
+      const readiness = payload.readiness || "steady";
+      const color = payload.readiness_color || badgeColorFromReadiness(readiness);
+      ui.readinessBadge.className = `badge ${color}`;
+      ui.readinessBadge.textContent = `Readiness: ${readiness}`;
+    }
+
+    function renderCharts(dashboard) {
+      let stateTrend = dashboard?.trends?.state || [];
+      let acwrTrend = dashboard?.trends?.acwr || [];
+      const loadTrend = dashboard?.trends?.weekly_load || [];
+      const today = dashboard?.today || new Date().toISOString().slice(0, 10);
+      if (!stateTrend.length && dashboard?.state) {
+        stateTrend = [{ date: today, fitness: Number(dashboard.state.fitness || 0), fatigue: Number(dashboard.state.fatigue || 0), form: Number(dashboard.state.form || 0) }];
+      }
+      if (!acwrTrend.length && typeof dashboard?.acwr === "number") acwrTrend = [{ date: today, value: Number(dashboard.acwr || 0) }];
+
+      const stateLabels = stateTrend.map((x) => x.date);
+      const fitnessData = stateTrend.map((x) => Number(x.fitness || 0));
+      const fatigueData = stateTrend.map((x) => Number(x.fatigue || 0));
+      const acwrLabels = acwrTrend.map((x) => x.date);
+      const acwrData = acwrTrend.map((x) => Number(x.value || 0));
+      const loadLabels = loadTrend.map((x) => x.week);
+      const loadData = loadTrend.map((x) => Number(x.value || 0));
+
+      ui.stateChartNote.textContent = stateTrend.length <= 1 ? "Need more sync days to draw full fitness/fatigue trend." : "";
+      ui.acwrChartNote.textContent = acwrTrend.length <= 1 ? "ACWR trend needs more training history." : "";
+      ui.loadChartNote.textContent = loadTrend.length <= 1 ? "Weekly load builds after more synced sessions." : "";
+
+      destroyChart(appState.charts.state);
+      destroyChart(appState.charts.acwr);
+      destroyChart(appState.charts.load);
+
+      const statePointRadius = stateTrend.length <= 2 ? 4 : 0;
+      const acwrPointRadius = acwrTrend.length <= 2 ? 4 : 0;
+
+      appState.charts.state = new Chart($("stateChart"), { type: "line", data: { labels: stateLabels, datasets: [{ label: "Fitness", data: fitnessData, borderColor: "#cfd4dd", tension: 0.3, pointRadius: statePointRadius }, { label: "Fatigue", data: fatigueData, borderColor: "#8f97a4", tension: 0.3, pointRadius: statePointRadius }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: "#dcecff" } } }, scales: { x: { ticks: { color: "#96abc7" }, title: { display: true, text: "Date", color: "#96abc7" } }, y: { ticks: { color: "#96abc7" }, title: { display: true, text: "Score", color: "#96abc7" } } } } });
+      appState.charts.load = new Chart($("loadChart"), { type: "bar", data: { labels: loadLabels, datasets: [{ label: "Weekly Load", data: loadData, backgroundColor: "rgba(177,184,196,0.55)", borderColor: "#c3c9d3", borderWidth: 1 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: "#dcecff" } } }, scales: { x: { ticks: { color: "#96abc7" }, title: { display: true, text: "Week", color: "#96abc7" } }, y: { ticks: { color: "#96abc7" }, title: { display: true, text: "Session Load", color: "#96abc7" } } } } });
+      appState.charts.acwr = new Chart($("acwrChart"), { type: "line", data: { labels: acwrLabels, datasets: [{ label: "ACWR", data: acwrData, borderColor: "#b8beca", backgroundColor: "rgba(184,190,202,0.2)", fill: true, tension: 0.28, pointRadius: acwrPointRadius }, { label: "Risk 1.5", data: acwrLabels.map(() => 1.5), borderColor: "rgba(124,132,145,0.9)", borderDash: [6, 5], pointRadius: 0 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: "#dcecff" } } }, scales: { x: { ticks: { color: "#96abc7" }, title: { display: true, text: "Date", color: "#96abc7" } }, y: { min: 0, ticks: { color: "#96abc7" }, title: { display: true, text: "ACWR", color: "#96abc7" } } } } });
+    }
+
+    function renderDashboard(data) {
+      clearSkeletons();
+      const weekly = data.weekly || {};
+      const state = data.state || {};
+      const readiness = data.readiness || "unknown";
+      ui.kReadiness.textContent = readiness;
+      ui.kForm.textContent = Number(state.form || 0).toFixed(1);
+      ui.kAcwr.textContent = Number(data.acwr || 0).toFixed(2);
+      ui.kSessions.textContent = String(weekly.sessions || 0);
+      ui.readinessBadge.className = `badge ${badgeColorFromReadiness(readiness)}`;
+      ui.readinessBadge.textContent = `Readiness: ${readiness}`;
+      ui.weeklySummary.textContent = weekly.summary_text || `This week: ${weekly.sessions || 0} sessions, ${Math.round(weekly.total_time_min || 0)} min total.`;
+      ui.activityMix.innerHTML = "";
+      for (const [type, count] of Object.entries(weekly.activity_mix || {})) {
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = `${type}: ${count}`;
+        ui.activityMix.appendChild(chip);
+      }
+      if (!ui.activityMix.children.length) {
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = "No activity yet";
+        ui.activityMix.appendChild(chip);
+      }
+      const latest = data.latest_recommendation;
+      if (latest && latest.action) {
+        renderRecommendation({ recommended_action: latest.action, confidence_score: latest.confidence, reasoning_dict: latest.reasoning || {}, narrative: latest.narrative || appState.latestRecommendation?.narrative || ui.narrative.textContent, action_message: latest.action_message, readiness: latest.readiness, readiness_color: latest.readiness_color });
+      }
+      renderCharts(data);
+    }
+
+    async function run(label, fn) {
+      if (appState.busy) return;
+      setBusy(true, label);
+      try {
+        await fn();
+      } catch (error) {
+        ui.apiOut.textContent = String(error);
+        setStatus(String(error), "bad");
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function refreshDashboard() {
+      const data = await request(`/dashboard/${appState.currentUserId}`);
+      appendLog("Dashboard refreshed.");
+      renderDashboard(data);
+      setStatus("Dashboard refreshed.", "good");
+    }
+
+    async function runFullFlow() {
+      const syncPayload = await request("/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: appState.currentUserId, days_back: 90 }),
+      }, true);
+      appendLog(`Sync complete: ${syncPayload.synced_activities || 0} activities.`);
+      await request(`/state/update/${appState.currentUserId}`, { method: "POST" }, true);
+      const recPayload = await request(`/recommend/${appState.currentUserId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "kalman" }),
+      }, true);
+      renderRecommendation(recPayload);
+      await refreshDashboard();
+      setStatus("Flow complete. Recommendation ready.", "good");
+    }
+
+    $("fullFlowBtn").addEventListener("click", () => run("Running full flow...", runFullFlow));
+    $("refreshBtn").addEventListener("click", () => run("Refreshing dashboard...", refreshDashboard));
+    $("logoutBtn").addEventListener("click", () => run("Logging out...", async () => {
+      await request("/logout", { method: "POST" }, true);
+      window.location.replace("/");
+    }));
+
+    for (const btn of $$(".feedback-btn")) {
+      btn.addEventListener("click", () => run("Submitting feedback...", async () => {
+        const today = new Date().toISOString().slice(0, 10);
+        await request("/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: appState.currentUserId, feedback_date: today, actual_action: btn.dataset.act, observed_outcome: {} }),
+        }, true);
+        appendLog(`Feedback recorded: ${btn.dataset.act}.`);
+        setStatus(`Feedback logged: ${btn.dataset.act}`, "good");
+      }));
+    }
+
+    (async () => {
+      try {
+        await initSession();
+        await run("Loading dashboard...", refreshDashboard);
+      } catch (_) {
+        window.location.replace("/");
+      }
+    })();
+  </script>
+</body>
+</html>

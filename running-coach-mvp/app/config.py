@@ -53,7 +53,10 @@ class Settings:
         max_hard_runs_per_week: Weekly hard run cap.
         injury_risk_threshold: ACWR threshold for injury risk.
         cors_origins: Allowed cross-origin origins.
-        session_secret: Secret used to sign API session tokens.
+        secret_key: Secret used to sign JWT session cookies.
+        session_ttl_hours: Session expiry window in hours.
+        token_encryption_key: Fernet key for Strava token encryption at rest.
+        cookie_secure: Whether secure cookies should require HTTPS.
     """
 
     strava_client_id: str = os.getenv("STRAVA_CLIENT_ID", "")
@@ -67,7 +70,10 @@ class Settings:
     max_hard_runs_per_week: int = int(os.getenv("MAX_HARD_RUNS_PER_WEEK", "2"))
     injury_risk_threshold: float = float(os.getenv("INJURY_RISK_THRESHOLD", "1.5"))
     cors_origins: tuple[str, ...] = _parse_csv_env(os.getenv("CORS_ORIGINS", "")) or _default_cors_origins()
-    session_secret: str = os.getenv("SESSION_SECRET", "")
+    secret_key: str = os.getenv("SECRET_KEY", os.getenv("SESSION_SECRET", ""))
+    session_ttl_hours: int = int(os.getenv("SESSION_TTL_HOURS", "24"))
+    token_encryption_key: str = os.getenv("TOKEN_ENCRYPTION_KEY", "")
+    cookie_secure: bool = os.getenv("COOKIE_SECURE", "true").lower() in {"1", "true", "yes", "on"}
 
     def __post_init__(self) -> None:
         """Normalize relative SQLite paths so DB is stable across launch directories."""

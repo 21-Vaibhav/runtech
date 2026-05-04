@@ -16,6 +16,7 @@ import httpx
 
 from app.config import settings
 from app.data.database import User
+from app.security.crypto import decrypt_secret, encrypt_secret
 
 LOGGER = logging.getLogger(__name__)
 
@@ -160,7 +161,7 @@ class StravaClient:
             "client_id": settings.strava_client_id,
             "client_secret": settings.strava_client_secret,
             "grant_type": "refresh_token",
-            "refresh_token": self.user.refresh_token,
+            "refresh_token": decrypt_secret(self.user.refresh_token),
         }
         with httpx.Client(timeout=30.0) as client:
             response = client.post(STRAVA_TOKEN_URL, data=payload)
@@ -205,11 +206,11 @@ class StravaClient:
 
         if self._needs_refresh():
             refreshed = self.refresh_access_token()
-            self.user.access_token = refreshed["access_token"]
-            self.user.refresh_token = refreshed["refresh_token"]
+            self.user.access_token = encrypt_secret(refreshed["access_token"])
+            self.user.refresh_token = encrypt_secret(refreshed["refresh_token"])
             self.user.token_expires_at = refreshed["expires_at"]
 
-        headers = {"Authorization": f"Bearer {self.user.access_token}"}
+        headers = {"Authorization": f"Bearer {decrypt_secret(self.user.access_token)}"}
         url = f"{STRAVA_API_BASE}{path}"
         with httpx.Client(timeout=30.0) as client:
             response = client.get(url, headers=headers, params=params)

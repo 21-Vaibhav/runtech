@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RunTech Coach - Support</title>
+  <style>
+    :root {
+      --bg: #0b0b0d;
+      --panel: #151518;
+      --line: #2a2a30;
+      --text: #ececf0;
+      --muted: #b1b1ba;
+      --danger: #d96a6a;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(900px 450px at 90% -20%, #25262b, transparent 60%), linear-gradient(170deg, #09090b, #101014);
+      color: var(--text);
+      font-family: "Segoe UI", Tahoma, sans-serif;
+    }
+    .wrap {
+      width: min(920px, 94vw);
+      margin: 24px auto 40px;
+      display: grid;
+      gap: 12px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      padding: 18px;
+    }
+    h1, h2 { margin: 0 0 8px; }
+    h1 { font-size: 1.6rem; }
+    h2 { font-size: 1.05rem; margin-top: 14px; }
+    p, li { color: var(--muted); line-height: 1.5; }
+    ul { margin: 8px 0 0; padding-left: 18px; }
+    a { color: #dedee5; }
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    button {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font: inherit;
+      font-weight: 700;
+      color: #101015;
+      cursor: pointer;
+      background: #d8d8df;
+    }
+    button.danger {
+      background: #c56b6b;
+      color: #fff;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .status {
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #101015;
+      padding: 10px;
+      font-size: 0.9rem;
+      color: #d8d8de;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="card">
+      <h1>Support</h1>
+      <p>
+        Need help with RunTech Coach? Reach us at
+        <a href="mailto:vaibhaaavvvvvvvv@gmail.com">vaibhaaavvvvvvvv@gmail.com</a>.
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>FAQ</h2>
+      <ul>
+        <li><strong>How do I connect Strava?</strong> Use the main dashboard and click the one-click connect flow.</li>
+        <li><strong>Can I stop sharing data?</strong> Yes. You can revoke access in Strava settings and also delete your stored data below.</li>
+        <li><strong>Do you sell my data?</strong> No. We do not sell or share personal data.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>Data Deletion & Opt-Out</h2>
+      <p>
+        You can permanently delete your account data from this site at any time.
+        This removes synced activities, computed metrics, recommendations, and account tokens.
+      </p>
+      <p>
+        After deletion, also revoke the app from your Strava account settings to fully disconnect.
+      </p>
+      <div class="row">
+        <button id="optOutBtn">Opt Out + Delete Data</button>
+        <button id="deleteBtn" class="danger">Delete Account Data</button>
+        <button id="backBtn">Back to Dashboard</button>
+      </div>
+      <div id="statusBox" class="status">Status: waiting</div>
+    </section>
+  </main>
+
+  <script>
+    const statusBox = document.getElementById("statusBox");
+    const optOutBtn = document.getElementById("optOutBtn");
+    const deleteBtn = document.getElementById("deleteBtn");
+    const backBtn = document.getElementById("backBtn");
+    let csrfToken = "";
+
+    function setStatus(text) {
+      statusBox.textContent = `Status: ${text}`;
+    }
+
+    async function initSession() {
+      const me = await fetch("/me", { credentials: "include" });
+      if (!me.ok) throw new Error("Please login first from the home page.");
+      const meBody = await me.json();
+      csrfToken = meBody.csrf_token || "";
+      if (!csrfToken) {
+        const csrfResp = await fetch("/csrf", { credentials: "include" });
+        if (!csrfResp.ok) throw new Error("Could not initialize CSRF token.");
+        const csrfBody = await csrfResp.json();
+        csrfToken = csrfBody.csrf_token || "";
+      }
+    }
+
+    async function authedPost(path) {
+      const response = await fetch(path, {
+        method: "POST",
+        credentials: "include",
+        headers: { "X-CSRF-Token": csrfToken, "Content-Type": "application/json" },
+      });
+      const text = await response.text();
+      const body = text ? JSON.parse(text) : {};
+      if (!response.ok) {
+        const detail = body && body.detail ? body.detail : text;
+        throw new Error(`${response.status}: ${detail}`);
+      }
+      return body;
+    }
+
+    async function runDelete(path) {
+      optOutBtn.disabled = true;
+      deleteBtn.disabled = true;
+      try {
+        setStatus("Processing request...");
+        const result = await authedPost(path);
+        setStatus(`${result.message || "Completed."}\nYou have been logged out.`);
+      } catch (err) {
+        setStatus(String(err));
+      } finally {
+        optOutBtn.disabled = false;
+        deleteBtn.disabled = false;
+      }
+    }
+
+    optOutBtn.addEventListener("click", () => runDelete("/account/opt-out"));
+    deleteBtn.addEventListener("click", () => runDelete("/account/delete"));
+    backBtn.addEventListener("click", () => { window.location.href = "/"; });
+    initSession().catch((err) => setStatus(String(err)));
+  </script>
+</body>
+</html>

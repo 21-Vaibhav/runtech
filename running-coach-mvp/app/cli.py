@@ -16,6 +16,7 @@ from app.data.strava_client import StravaClient
 from app.decision.optimizer import recommend_action
 from app.feedback.tracker import compute_stats
 from app.models.state_estimator import update_state_estimates
+from app.security.crypto import encrypt_secret
 
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
@@ -61,16 +62,20 @@ def auth_cmd(code: str) -> None:
             user = User(
                 strava_athlete_id=athlete_id,
                 username=athlete.get("username"),
-                access_token=payload["access_token"],
-                refresh_token=payload["refresh_token"],
+                access_token=encrypt_secret(payload["access_token"]),
+                refresh_token=encrypt_secret(payload["refresh_token"]),
                 token_expires_at=payload["expires_at"],
+                token_encrypted=True,
+                last_login_at=datetime.utcnow(),
             )
             db.add(user)
             db.flush()
         else:
-            user.access_token = payload["access_token"]
-            user.refresh_token = payload["refresh_token"]
+            user.access_token = encrypt_secret(payload["access_token"])
+            user.refresh_token = encrypt_secret(payload["refresh_token"])
             user.token_expires_at = payload["expires_at"]
+            user.token_encrypted = True
+            user.last_login_at = datetime.utcnow()
         db.commit()
         click.echo(f"Authenticated user_id={user.id}")
     finally:

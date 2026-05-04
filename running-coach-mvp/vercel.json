@@ -8,12 +8,24 @@
   },
   "routes": [
     {
-      "src": "/(auth/url|auth/callback|callback|users|me|sync|state(?:/.*)?|recommend(?:/.*)?|feedback|stats(?:/.*)?|history(?:/.*)?|dashboard(?:/.*)?|docs|redoc|openapi\\.json)",
+      "src": "/dashboard",
+      "dest": "/frontend/dashboard.html"
+    },
+    {
+      "src": "/(auth/url|auth/login|auth/callback|callback|users|me|csrf|logout|sync|state(?:/.*)?|recommend(?:/.*)?|feedback|stats(?:/.*)?|history(?:/.*)?|dashboard(?:/.*)?|account(?:/.*)?|docs|redoc|openapi\\.json)",
       "dest": "api/index.py"
     },
     {
       "src": "/frontend/(.*)",
       "dest": "/frontend/$1"
+    },
+    {
+      "src": "/privacy",
+      "dest": "/frontend/privacy.html"
+    },
+    {
+      "src": "/support",
+      "dest": "/frontend/support.html"
     },
     {
       "src": "/",

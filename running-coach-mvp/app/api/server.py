@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 import logging
-import json
-import base64
-import hashlib
 import hmac
 import time
 from collections import OrderedDict
@@ -14,19 +11,22 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 from typing import Literal
 
 from app.config import settings
 from app.data.database import (
     Activity,
+    ActivityStream,
+    CalibrationLog,
     ComputedMetric,
+    Race,
     Recommendation,
     SessionLocal,
     StateEstimate,
@@ -40,6 +40,15 @@ from app.decision.messages import readiness_color, recommendation_message, weekl
 from app.decision.optimizer import RecommendationResult, recommend_action
 from app.feedback.tracker import compute_stats, log_feedback
 from app.models.state_estimator import update_state_estimates
+from app.security.crypto import encrypt_secret
+from app.security.session import (
+    CSRF_COOKIE_NAME,
+    CSRF_HEADER_NAME,
+    SESSION_COOKIE_NAME,
+    create_session_jwt,
+    decode_session_jwt,
+    generate_csrf_token,
+)
 
 LOGGER = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -48,9 +57,9 @@ app = FastAPI(title="Running Coach MVP", version="1.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", CSRF_HEADER_NAME],
 )
 
 
@@ -60,12 +69,12 @@ class AuthCallbackRequest(BaseModel):
 
 
 class SyncRequest(BaseModel):
-    user_id: int = Field(gt=0)
+    user_id: int | None = Field(default=None, gt=0)
     days_back: int = Field(default=90, ge=1, le=365)
 
 
 class FeedbackRequest(BaseModel):
-    user_id: int = Field(gt=0)
+    user_id: int | None = Field(default=None, gt=0)
     feedback_date: date
     actual_action: Literal["rest", "easy", "moderate", "hard"]
     observed_outcome: dict[str, Any] = Field(default_factory=dict)
@@ -107,6 +116,11 @@ class RecommendationCache:
         while len(self._store) > self.max_items:
             self._store.popitem(last=False)
 
+    def invalidate_user(self, user_id: int) -> None:
+        keys = [key for key in self._store if key[0] == user_id]
+        for key in keys:
+            self._store.pop(key, None)
+
 
 _REC_CACHE = RecommendationCache(ttl_seconds=6 * 60 * 60)
 
@@ -133,44 +147,121 @@ def get_db() -> Session:
         db.close()
 
 
-def _token_secret() -> str:
-    return settings.session_secret or settings.strava_client_secret or "running-coach-session-secret"
+def _cookie_secure(request: Request) -> bool:
+    """Use secure cookies in production HTTPS environments."""
+
+    if not settings.cookie_secure:
+        return False
+    if request.url.hostname in {"localhost", "127.0.0.1"}:
+        return False
+    return request.url.scheme == "https"
 
 
-def _create_session_token(user_id: int, ttl_seconds: int = 60 * 60 * 24 * 14) -> tuple[str, int]:
-    expires_at = int(time.time()) + ttl_seconds
-    payload = f"{user_id}.{expires_at}"
-    sig = hmac.new(_token_secret().encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
-    token = base64.urlsafe_b64encode(f"{payload}.{sig}".encode("utf-8")).decode("utf-8").rstrip("=")
-    return token, expires_at
+def _set_auth_cookies(response: Response, request: Request, user_id: int) -> int:
+    """Set signed session JWT and CSRF cookies."""
+
+    jwt_token, expires_at = create_session_jwt(user_id=user_id)
+    csrf_token = generate_csrf_token()
+    is_secure = _cookie_secure(request)
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=jwt_token,
+        httponly=True,
+        secure=is_secure,
+        samesite="lax",
+        max_age=settings.session_ttl_hours * 3600,
+        path="/",
+    )
+    response.set_cookie(
+        key=CSRF_COOKIE_NAME,
+        value=csrf_token,
+        httponly=False,
+        secure=is_secure,
+        samesite="lax",
+        max_age=settings.session_ttl_hours * 3600,
+        path="/",
+    )
+    return expires_at
 
 
-def _parse_session_token(token: str) -> int:
+def _clear_auth_cookies(response: Response, request: Request) -> None:
+    is_secure = _cookie_secure(request)
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/", samesite="lax", secure=is_secure)
+    response.delete_cookie(CSRF_COOKIE_NAME, path="/", samesite="lax", secure=is_secure)
+
+
+def _parse_user_id_from_cookie(request: Request) -> int:
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    if not token:
+        raise HTTPException(status_code=401, detail="Unauthorized")
     try:
-        padded = token + "=" * ((4 - len(token) % 4) % 4)
-        raw = base64.urlsafe_b64decode(padded.encode("utf-8")).decode("utf-8")
-        user_s, exp_s, sig = raw.split(".", 2)
-        payload = f"{user_s}.{exp_s}"
-        expected = hmac.new(_token_secret().encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(sig, expected):
-            raise ValueError("invalid signature")
-        if int(exp_s) < int(time.time()):
-            raise ValueError("expired token")
-        return int(user_s)
+        return decode_session_jwt(token)
     except Exception as exc:
         raise HTTPException(status_code=401, detail="Unauthorized") from exc
 
 
-def require_session_user(authorization: str | None = Header(default=None, alias="Authorization")) -> int:
-    if not authorization or not authorization.lower().startswith("bearer "):
+def get_current_user_id(request: Request) -> int:
+    return _parse_user_id_from_cookie(request)
+
+
+def get_current_user(
+    user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> User:
+    """Resolve authenticated user from signed session cookie."""
+
+    user = db.get(User, user_id)
+    if user is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    token = authorization.split(" ", 1)[1].strip()
-    return _parse_session_token(token)
+    return user
+
+
+def require_csrf(request: Request, x_csrf_token: str | None = Header(default=None, alias=CSRF_HEADER_NAME)) -> None:
+    """Double-submit CSRF guard for state-changing requests."""
+
+    cookie_token = request.cookies.get(CSRF_COOKIE_NAME)
+    if not cookie_token or not x_csrf_token:
+        raise HTTPException(status_code=403, detail="CSRF token missing")
+    if not hmac.compare_digest(cookie_token, x_csrf_token):
+        raise HTTPException(status_code=403, detail="CSRF token invalid")
 
 
 def _ensure_same_user(auth_user_id: int, target_user_id: int) -> None:
     if auth_user_id != target_user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def _delete_user_data(db: Session, user_id: int) -> dict[str, int]:
+    """Delete all user-linked records and the user account."""
+
+    activity_ids = db.scalars(select(Activity.id).where(Activity.user_id == user_id)).all()
+    deleted_streams = 0
+    if activity_ids:
+        deleted_streams = db.execute(
+            delete(ActivityStream).where(ActivityStream.activity_id.in_(activity_ids))
+        ).rowcount or 0
+
+    deleted_metrics = db.execute(delete(ComputedMetric).where(ComputedMetric.user_id == user_id)).rowcount or 0
+    deleted_states = db.execute(delete(StateEstimate).where(StateEstimate.user_id == user_id)).rowcount or 0
+    deleted_state_cache = db.execute(delete(UserStateCache).where(UserStateCache.user_id == user_id)).rowcount or 0
+    deleted_recs = db.execute(delete(Recommendation).where(Recommendation.user_id == user_id)).rowcount or 0
+    deleted_races = db.execute(delete(Race).where(Race.user_id == user_id)).rowcount or 0
+    deleted_calibration = db.execute(delete(CalibrationLog).where(CalibrationLog.user_id == user_id)).rowcount or 0
+    deleted_activities = db.execute(delete(Activity).where(Activity.user_id == user_id)).rowcount or 0
+    deleted_users = db.execute(delete(User).where(User.id == user_id)).rowcount or 0
+
+    _REC_CACHE.invalidate_user(user_id)
+    return {
+        "users": int(deleted_users),
+        "activities": int(deleted_activities),
+        "activity_streams": int(deleted_streams),
+        "computed_metrics": int(deleted_metrics),
+        "state_estimates": int(deleted_states),
+        "user_state_cache": int(deleted_state_cache),
+        "recommendations": int(deleted_recs),
+        "races": int(deleted_races),
+        "calibration_logs": int(deleted_calibration),
+    }
 
 
 @app.middleware("http")
@@ -200,10 +291,14 @@ def startup() -> None:
         init_db()
     except Exception as exc:
         LOGGER.exception("Database initialization failed during startup: %s", exc)
+    if not settings.secret_key:
+        LOGGER.warning("SECRET_KEY is missing; cookie session security is degraded.")
+    if not settings.token_encryption_key:
+        LOGGER.warning("TOKEN_ENCRYPTION_KEY is missing; Strava token encryption will fail.")
     LOGGER.info("startup complete")
 
 
-def _upsert_user_from_token_payload(token_payload: dict[str, Any], db: Session) -> dict[str, Any]:
+def _upsert_user_from_token_payload(token_payload: dict[str, Any], db: Session) -> User:
     athlete = token_payload.get("athlete", {})
     athlete_id = int(athlete.get("id"))
     user = db.scalar(select(User).where(User.strava_athlete_id == athlete_id))
@@ -211,25 +306,22 @@ def _upsert_user_from_token_payload(token_payload: dict[str, Any], db: Session) 
         user = User(
             strava_athlete_id=athlete_id,
             username=athlete.get("username"),
-            access_token=token_payload["access_token"],
-            refresh_token=token_payload["refresh_token"],
+            access_token=encrypt_secret(token_payload["access_token"]),
+            refresh_token=encrypt_secret(token_payload["refresh_token"]),
             token_expires_at=token_payload["expires_at"],
+            token_encrypted=True,
+            last_login_at=datetime.utcnow(),
         )
         db.add(user)
         db.flush()
     else:
         user.username = athlete.get("username")
-        user.access_token = token_payload["access_token"]
-        user.refresh_token = token_payload["refresh_token"]
+        user.access_token = encrypt_secret(token_payload["access_token"])
+        user.refresh_token = encrypt_secret(token_payload["refresh_token"])
         user.token_expires_at = token_payload["expires_at"]
-
-    session_token, session_expires_at = _create_session_token(user.id)
-    return {
-        "user_id": user.id,
-        "strava_athlete_id": athlete_id,
-        "session_token": session_token,
-        "session_expires_at": session_expires_at,
-    }
+        user.token_encrypted = True
+        user.last_login_at = datetime.utcnow()
+    return user
 
 
 def _readiness_label(form: float, acwr_value: float, confidence: float) -> str:
@@ -251,8 +343,21 @@ def auth_url() -> dict[str, str]:
     return {"url": StravaClient().get_auth_url(state=state), "state": state}
 
 
+@app.get("/auth/login")
+def auth_login() -> RedirectResponse:
+    """Redirect browser directly to Strava OAuth consent."""
+
+    if not settings.strava_client_id or not settings.strava_client_secret:
+        raise HTTPException(
+            status_code=500,
+            detail="Strava credentials missing. Configure STRAVA_CLIENT_ID and STRAVA_CLIENT_SECRET.",
+        )
+    state = StravaClient.create_oauth_state()
+    return RedirectResponse(url=StravaClient().get_auth_url(state=state), status_code=302)
+
+
 @app.post("/auth/callback")
-def auth_callback(payload: AuthCallbackRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+def auth_callback(payload: AuthCallbackRequest, response: Response, request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
     client = StravaClient()
     if payload.state and not client.validate_oauth_state(payload.state):
         raise HTTPException(status_code=400, detail="Invalid or expired OAuth state. Retry authorization.")
@@ -270,53 +375,13 @@ def auth_callback(payload: AuthCallbackRequest, db: Session = Depends(get_db)) -
                 ),
             )
         raise HTTPException(status_code=400, detail=f"OAuth exchange failed: {exc}") from exc
-    return _upsert_user_from_token_payload(token_payload, db)
-
-
-def _oauth_callback_html(payload: dict[str, Any], error: str | None = None) -> HTMLResponse:
-    message = {
-        "type": "running_coach_oauth_success" if not error else "running_coach_oauth_error",
-        "payload": payload,
-        "error": error,
+    user = _upsert_user_from_token_payload(token_payload, db)
+    session_expires_at = _set_auth_cookies(response, request, user.id)
+    return {
+        "user_id": user.id,
+        "strava_athlete_id": user.strava_athlete_id,
+        "session_expires_at": session_expires_at,
     }
-    script_data = json.dumps(message)
-    html = f"""
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>RunTech OAuth</title>
-    <style>
-      body {{ font-family: Segoe UI, Arial, sans-serif; background:#0b1220; color:#e6f0ff; margin:0; display:flex; min-height:100vh; align-items:center; justify-content:center; }}
-      .card {{ max-width:560px; border:1px solid #2b4768; border-radius:12px; padding:18px; background:#111d30; }}
-      h2 {{ margin:0 0 8px; }}
-      p {{ color:#b8cee8; line-height:1.45; }}
-      .ok {{ color:#8ff3c4; }}
-      .err {{ color:#ffb1bd; }}
-      button {{ margin-top:10px; border:none; border-radius:8px; padding:8px 12px; font-weight:700; cursor:pointer; }}
-    </style>
-  </head>
-  <body>
-    <div class="card">
-      <h2 class="{'ok' if not error else 'err'}">{'Strava connected' if not error else 'OAuth failed'}</h2>
-      <p>{'You can close this tab and return to the app.' if not error else error}</p>
-      <button onclick="window.location.href='/'">Return to app</button>
-    </div>
-    <script>
-      (function () {{
-        const msg = {script_data};
-        try {{
-          if (window.opener && window.opener !== window) {{
-            window.opener.postMessage(msg, window.location.origin);
-            setTimeout(() => window.close(), 500);
-          }}
-        }} catch (_) {{}}
-      }})();
-    </script>
-  </body>
-</html>
-"""
-    return HTMLResponse(content=html, status_code=200 if not error else 400)
 
 
 @app.get("/auth/callback")
@@ -326,18 +391,35 @@ def auth_callback_get(
     state: str | None = Query(default=None, min_length=8, max_length=256),
     json_mode: bool = Query(default=False, alias="json"),
     db: Session = Depends(get_db),
-) -> dict[str, Any]:
+) -> Any:
+    client = StravaClient()
+    if state and not client.validate_oauth_state(state):
+        raise HTTPException(status_code=400, detail="Invalid or expired OAuth state. Retry authorization.")
     try:
-        result = auth_callback(AuthCallbackRequest(code=code, state=state), db)
-    except HTTPException as exc:
-        accepts_html = "text/html" in request.headers.get("accept", "")
-        if accepts_html and not json_mode:
-            return _oauth_callback_html({}, error=str(exc.detail))
-        raise
-    accepts_html = "text/html" in request.headers.get("accept", "")
-    if accepts_html and not json_mode:
-        return _oauth_callback_html(result)
-    return result
+        token_payload = client.exchange_code(_extract_code(code))
+    except Exception as exc:
+        message = str(exc)
+        if "invalid_grant" in message.lower():
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "OAuth code is invalid/expired/already used, or redirect URI mismatched. "
+                    "Retry from /auth/login."
+                ),
+            )
+        raise HTTPException(status_code=400, detail=f"OAuth exchange failed: {exc}") from exc
+
+    user = _upsert_user_from_token_payload(token_payload, db)
+    if json_mode:
+        response = JSONResponse(
+            content={"user_id": user.id, "strava_athlete_id": user.strava_athlete_id},
+            status_code=200,
+        )
+        _set_auth_cookies(response, request, user.id)
+        return response
+    redirect = RedirectResponse(url="/dashboard", status_code=302)
+    _set_auth_cookies(redirect, request, user.id)
+    return redirect
 
 
 @app.get("/callback")
@@ -347,12 +429,12 @@ def callback_alias(
     state: str | None = Query(default=None, min_length=8, max_length=256),
     json_mode: bool = Query(default=False, alias="json"),
     db: Session = Depends(get_db),
-) -> dict[str, Any]:
+) -> Any:
     return auth_callback_get(request=request, code=code, state=state, json_mode=json_mode, db=db)
 
 
 @app.get("/users")
-def list_users(auth_user_id: int = Depends(require_session_user), db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+def list_users(auth_user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     row = db.get(User, auth_user_id)
     if row is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -367,24 +449,89 @@ def list_users(auth_user_id: int = Depends(require_session_user), db: Session = 
 
 
 @app.get("/me")
-def me(auth_user_id: int = Depends(require_session_user), db: Session = Depends(get_db)) -> dict[str, Any]:
+def me(request: Request, current_user: User = Depends(get_current_user)) -> dict[str, Any]:
+    return {
+        "id": current_user.id,
+        "strava_athlete_id": current_user.strava_athlete_id,
+        "username": current_user.username,
+        "token_expires_at": current_user.token_expires_at,
+        "csrf_token": request.cookies.get(CSRF_COOKIE_NAME, ""),
+    }
+
+
+@app.get("/csrf")
+def csrf(request: Request, auth_user_id: int = Depends(get_current_user_id)) -> JSONResponse:
+    """Return/rotate CSRF token for authenticated browser session."""
+
+    token = request.cookies.get(CSRF_COOKIE_NAME) or generate_csrf_token()
+    response = JSONResponse(content={"csrf_token": token}, status_code=200)
+    response.set_cookie(
+        key=CSRF_COOKIE_NAME,
+        value=token,
+        httponly=False,
+        secure=_cookie_secure(request),
+        samesite="lax",
+        max_age=settings.session_ttl_hours * 3600,
+        path="/",
+    )
+    return response
+
+
+@app.post("/logout")
+def logout(request: Request, _csrf_ok: None = Depends(require_csrf)) -> JSONResponse:
+    response = JSONResponse(content={"logged_out": True}, status_code=200)
+    _clear_auth_cookies(response, request)
+    return response
+
+
+@app.post("/account/delete")
+def account_delete(
+    auth_user_id: int = Depends(get_current_user_id),
+    _csrf_ok: None = Depends(require_csrf),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
     row = db.get(User, auth_user_id)
     if row is None:
         raise HTTPException(status_code=404, detail="User not found")
+    deleted = _delete_user_data(db, auth_user_id)
     return {
-        "id": row.id,
-        "strava_athlete_id": row.strava_athlete_id,
-        "username": row.username,
-        "token_expires_at": row.token_expires_at,
+        "deleted": True,
+        "opted_out": True,
+        "message": "Your account and linked training data were deleted.",
+        "deleted_counts": deleted,
+    }
+
+
+@app.post("/account/opt-out")
+def account_opt_out(
+    auth_user_id: int = Depends(get_current_user_id),
+    _csrf_ok: None = Depends(require_csrf),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    row = db.get(User, auth_user_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    deleted = _delete_user_data(db, auth_user_id)
+    return {
+        "deleted": True,
+        "opted_out": True,
+        "message": "You opted out successfully. We deleted your stored data.",
+        "deleted_counts": deleted,
     }
 
 
 @app.post("/sync")
-def sync(payload: SyncRequest, auth_user_id: int = Depends(require_session_user), db: Session = Depends(get_db)) -> dict[str, Any]:
-    _ensure_same_user(auth_user_id, payload.user_id)
+def sync(
+    payload: SyncRequest,
+    auth_user_id: int = Depends(get_current_user_id),
+    _csrf_ok: None = Depends(require_csrf),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    if payload.user_id is not None:
+        _ensure_same_user(auth_user_id, payload.user_id)
     t0 = time.perf_counter()
     try:
-        result = sync_activities(db=db, user_id=payload.user_id, days_back=payload.days_back)
+        result = sync_activities(db=db, user_id=auth_user_id, days_back=payload.days_back)
     except ValueError as exc:
         message = str(exc)
         if "not found" in message.lower():
@@ -394,12 +541,12 @@ def sync(payload: SyncRequest, auth_user_id: int = Depends(require_session_user)
         LOGGER.exception("sync failed")
         raise HTTPException(status_code=500, detail=f"Sync failed: {exc}") from exc
 
-    LOGGER.info("/sync user=%s elapsed=%.2fs", payload.user_id, time.perf_counter() - t0)
+    LOGGER.info("/sync user=%s elapsed=%.2fs", auth_user_id, time.perf_counter() - t0)
     return {"synced_activities": result.synced_activities, "computed_metrics": result.computed_metrics}
 
 
 @app.get("/state/{user_id}")
-def state(user_id: int, auth_user_id: int = Depends(require_session_user), db: Session = Depends(get_db)) -> dict[str, Any]:
+def state(user_id: int, auth_user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)) -> dict[str, Any]:
     _ensure_same_user(auth_user_id, user_id)
     cache = db.scalar(select(UserStateCache).where(UserStateCache.user_id == user_id))
     if cache is None:
@@ -417,7 +564,12 @@ def state(user_id: int, auth_user_id: int = Depends(require_session_user), db: S
 
 
 @app.post("/state/update/{user_id}")
-def state_update(user_id: int, auth_user_id: int = Depends(require_session_user), db: Session = Depends(get_db)) -> dict[str, Any]:
+def state_update(
+    user_id: int,
+    auth_user_id: int = Depends(get_current_user_id),
+    _csrf_ok: None = Depends(require_csrf),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
     """Explicitly recompute state cache for the user."""
     _ensure_same_user(auth_user_id, user_id)
 
@@ -471,7 +623,8 @@ def _build_recommendation_payload(
 async def recommend(
     user_id: int,
     payload: RecommendRequest,
-    auth_user_id: int = Depends(require_session_user),
+    auth_user_id: int = Depends(get_current_user_id),
+    _csrf_ok: None = Depends(require_csrf),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """Generate recommendation from cached state and cache result for 6h."""
@@ -497,12 +650,18 @@ async def recommend(
 
 
 @app.post("/feedback")
-def feedback(payload: FeedbackRequest, auth_user_id: int = Depends(require_session_user), db: Session = Depends(get_db)) -> dict[str, Any]:
-    _ensure_same_user(auth_user_id, payload.user_id)
+def feedback(
+    payload: FeedbackRequest,
+    auth_user_id: int = Depends(get_current_user_id),
+    _csrf_ok: None = Depends(require_csrf),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    if payload.user_id is not None:
+        _ensure_same_user(auth_user_id, payload.user_id)
     try:
         log = log_feedback(
             db=db,
-            user_id=payload.user_id,
+            user_id=auth_user_id,
             feedback_date=payload.feedback_date,
             actual_action=payload.actual_action,
             observed_outcome=payload.observed_outcome,
@@ -514,7 +673,7 @@ def feedback(payload: FeedbackRequest, auth_user_id: int = Depends(require_sessi
 
 
 @app.get("/stats/{user_id}")
-def stats(user_id: int, auth_user_id: int = Depends(require_session_user), db: Session = Depends(get_db)) -> dict[str, Any]:
+def stats(user_id: int, auth_user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)) -> dict[str, Any]:
     _ensure_same_user(auth_user_id, user_id)
     summary = compute_stats(db, user_id)
     return {
@@ -530,7 +689,7 @@ def stats(user_id: int, auth_user_id: int = Depends(require_session_user), db: S
 def history(
     user_id: int,
     days: int = 30,
-    auth_user_id: int = Depends(require_session_user),
+    auth_user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     _ensure_same_user(auth_user_id, user_id)
@@ -565,7 +724,7 @@ def history(
 
 
 @app.get("/dashboard/{user_id}")
-def dashboard(user_id: int, auth_user_id: int = Depends(require_session_user), db: Session = Depends(get_db)) -> dict[str, Any]:
+def dashboard(user_id: int, auth_user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)) -> dict[str, Any]:
     _ensure_same_user(auth_user_id, user_id)
     now = datetime.utcnow()
     week_ago = now - timedelta(days=7)
